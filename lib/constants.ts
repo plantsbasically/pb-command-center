@@ -1,6 +1,5 @@
 export const USERS = [
-  { username: "kyle", password: "kyle2026!" },
-  { username: "john", password: "john2026!" },
+  { username: "pb", password: "profit123" },
 ] as const
 
 export const DEFAULT_DATE_RANGE = {
