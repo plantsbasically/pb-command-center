@@ -1,0 +1,12 @@
+{
+  "lineItems": [
+    { "name": "Triple Whale Subscription", "monthlyCost": 299 },
+    { "name": "Shopify Plus", "monthlyCost": 2300 },
+    { "name": "Gorgias", "monthlyCost": 150 },
+    { "name": "Motion", "monthlyCost": 120 },
+    { "name": "Notion", "monthlyCost": 15 },
+    { "name": "OpenClaw", "monthlyCost": 50 },
+    { "name": "Kyle Salary", "monthlyCost": 5000 },
+    { "name": "John Salary", "monthlyCost": 5000 }
+  ]
+}
