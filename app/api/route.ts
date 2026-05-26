@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBasicAuthHeader, authHeaders } from "@/lib/auth"
 
+// Allow up to 90s — sequential Shopify cursor pagination can take 20-30s for large date ranges
+export const maxDuration = 90
+
+// Module-level cache persists across requests on Railway's long-running server
+const cache = new Map<string, { data: any; ts: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
 function checkAuth(req: NextRequest) {
   const auth = getBasicAuthHeader(req.headers.get("authorization"))
   if (!auth?.valid) {
@@ -17,6 +24,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const dateStart = searchParams.get("start") || new Date().toISOString().split("T")[0]
     const dateEnd = searchParams.get("end") || dateStart
+    const bust = searchParams.get("bust") === "1"
+
+    const cacheKey = `${dateStart}|${dateEnd}`
+    const cached = cache.get(cacheKey)
+    if (!bust && cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return NextResponse.json(cached.data)
+    }
 
     // Import data & calculations
     const { readJSON } = await import("@/lib/filestore")
@@ -71,13 +85,17 @@ export async function GET(req: NextRequest) {
       totalCOGS: (shopifyData.variantUnitsSold[v.variantKey] || 0) * v.totalCost,
     }))
 
-    return NextResponse.json({
+    const responseData = {
       metrics,
       cogsBreakdown,
       variants: cogsData.variants,
       fixedCosts: fixedCostsData.lineItems,
       twData,
-    })
+    }
+
+    cache.set(cacheKey, { data: responseData, ts: Date.now() })
+
+    return NextResponse.json(responseData)
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Internal error" },

@@ -118,13 +118,13 @@ export default function Dashboard() {
   const [newFixedCost, setNewFixedCost] = useState("")
   const [showAllDatePresets, setShowAllDatePresets] = useState(false)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (bust = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api?start=${dateStart}&end=${dateEnd}`)
+      const url = `/api?start=${dateStart}&end=${dateEnd}${bust ? "&bust=1" : ""}`
+      const res = await fetch(url)
       if (res.status === 401) {
-        // Browser should have prompted for auth already
         throw new Error("Authentication required")
       }
       if (!res.ok) {
@@ -145,7 +145,7 @@ export default function Dashboard() {
   }, [dateStart, dateEnd])
 
   useEffect(() => {
-    fetchData()
+    fetchData(false)
   }, [fetchData])
 
   const saveCOGS = async () => {
@@ -328,6 +328,14 @@ export default function Dashboard() {
                 className="border-zinc-300"
               />
             </label>
+            <button
+              onClick={() => fetchData(true)}
+              disabled={loading}
+              className="text-xs px-3 py-1.5 rounded-lg border bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+              title="Force refresh (bypass cache)"
+            >
+              ↻ Refresh
+            </button>
           </div>
         </div>
       </div>
