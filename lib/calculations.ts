@@ -18,6 +18,8 @@ export interface MetricsResult {
   grossProfit: number
   grossMarginPct: number
   adSpend: number
+  contributionProfit: number
+  contributionMarginPct: number
   fixedCosts: number
   netProfit: number
   netMarginPct: number
@@ -71,7 +73,10 @@ export function computeMetrics(params: {
   const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
   const fixedCosts = totalFixedMonthly * (daysInRange / daysInMonth)
 
-  const netProfit = grossProfit - adSpend - fixedCosts
+  const contributionProfit = grossProfit - adSpend
+  const contributionMarginPct = revenue > 0 ? (contributionProfit / revenue) * 100 : 0
+
+  const netProfit = contributionProfit - fixedCosts
   const netMarginPct = revenue > 0 ? (netProfit / revenue) * 100 : 0
 
   const newCustomers = shopifyNewCustomers
@@ -88,6 +93,8 @@ export function computeMetrics(params: {
     grossProfit,
     grossMarginPct,
     adSpend,
+    contributionProfit,
+    contributionMarginPct,
     fixedCosts,
     netProfit,
     netMarginPct,
