@@ -1,6 +1,5 @@
-const API_KEY = process.env.TRIPLEWHALE_API_KEY || ""
+const API_KEY = proces…_KEY || ""
 const BASE_URL = "https://api.triplewhale.com"
-// Try multiple env var names for the Shopify domain
 const SHOPIFY_DOMAIN = (process.env.SHOPIFY_STORE_URL || process.env.SHOPIFY_ADMIN_API_URL || process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/+$/, "")
 
 export async function fetchTWData(dateStart: string, dateEnd: string) {
@@ -34,7 +33,12 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
     raw = await res.text()
   }
 
-  console.log(`[TW] Status: ${res.status}, Response: ${JSON.stringify(raw).slice(0, 300)}`)
+  console.log(`[TW] Full response (first 500): ${JSON.stringify(raw).slice(0, 500)}`)
+
+  // Also log the first metric object so we can see actual keys
+  if (Array.isArray(raw?.metrics) && raw.metrics.length > 0) {
+    console.log(`[TW] First metric object keys: ${JSON.stringify(raw.metrics[0])}`)
+  }
 
   if (!res.ok) {
     return { raw, error: `TW API ${res.status}` }
@@ -56,19 +60,27 @@ export function processTWData(rawData: any): TWProcessedData {
   if (!rawData) {
     return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "No response" }
   }
-  // Raw response is { metrics: [{ metricName, value }] }
+
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
 
   if (Array.isArray(rawData?.metrics)) {
-    console.log("[TW] All metric names:", rawData.metrics.map((m: any) => m.metricName).join(", "))
+    console.log("[TW] Metric count:", rawData.metrics.length)
+    console.log("[TW] First metric object:", JSON.stringify(rawData.metrics[0]))
     for (const m of rawData.metrics) {
-      const name = m.metricName?.toLowerCase() || ""
-      const val = parseFloat(m.value ?? "0") || 0
-      console.log(`[TW] "${name}" = ${val}`)
-      if (name.includes("adspend") || name.includes("ad_spend") || name.includes("ad spend")) adSpend = val
-      if (name.includes("revenue")) attributedRevenue = val
-      if (name.includes("cac")) blendedCac = val
-      if (name.includes("roas")) blendedRoas = val
+      const name = m.metricName?.toLowerCase() || m.key?.toLowerCase() || m.name?.toLowerCase() || ((m.label || m.title || "").toLowerCase())
+      const val = parseFloat(m.value ?? m.amount ?? m.data?.value ?? m?.metric ?? "0") || 0
+      console.log(`[TW] name="${name}" val=${val}`)
+
+      if (name?.includes("adspend") || name?.includes("ad_spend") || name?.includes("ad spend")) adSpend = val
+      if (name?.includes("revenue")) attributedRevenue = val
+      if (name?.includes("cac")) blendedCac = val
+      if (name?.includes("roas")) blendedRoas = val
+    }
+  } else {
+    console.log("[TW] No metrics array. Top-level keys:", JSON.stringify(Object.keys(rawData)))
+    // Fallback: try reading top-level fields directly
+    for (const [key, val] of Object.entries(rawData)) {
+      console.log(`[TW] direct key="${key}" = ${val}`)
     }
   }
 
