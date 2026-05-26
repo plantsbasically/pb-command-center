@@ -65,9 +65,6 @@ interface OrdersResponse {
   orders: ShopifyOrder[]
 }
 
-interface CustomersResponse {
-  customers: ShopifyCustomer[]
-}
 
 export async function fetchOrders(dateStart: string, dateEnd: string): Promise<ShopifyOrder[]> {
   const allOrders: ShopifyOrder[] = []
@@ -102,31 +99,6 @@ export async function fetchOrders(dateStart: string, dateEnd: string): Promise<S
   return allOrders
 }
 
-export async function fetchCustomers(): Promise<ShopifyCustomer[]> {
-  const allCustomers: ShopifyCustomer[] = []
-
-  const firstRes = await shopifyFetch("customers.json", { limit: "250" })
-  const firstData: CustomersResponse = await firstRes.json()
-  allCustomers.push(...firstData.customers)
-
-  let nextUrl = parseNextLink(firstRes.headers.get("link"))
-
-  while (nextUrl && allCustomers.length < 100000) {
-    const res = await fetch(nextUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": ACCESS_TOKEN,
-      },
-    })
-    if (!res.ok) throw new Error(`Shopify customer pagination ${res.status}: ${await res.text()}`)
-    const data: CustomersResponse = await res.json()
-    if (!data.customers.length) break
-    allCustomers.push(...data.customers)
-    nextUrl = parseNextLink(res.headers.get("link"))
-  }
-
-  return allCustomers
-}
 
 export interface ProcessedShopifyData {
   revenue: number
@@ -140,8 +112,7 @@ export interface ProcessedShopifyData {
 
 export async function processShopifyData(
   dateStart: string,
-  dateEnd: string,
-  customers: ShopifyCustomer[]
+  dateEnd: string
 ): Promise<ProcessedShopifyData> {
   const orders = await fetchOrders(dateStart, dateEnd)
 

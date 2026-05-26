@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     // Import data & calculations
     const { readJSON } = await import("@/lib/filestore")
     const { computeMetrics } = await import("@/lib/calculations")
-    const { processShopifyData, fetchOrders, fetchCustomers } = await import("@/lib/shopify")
+    const { processShopifyData } = await import("@/lib/shopify")
     const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
 
     // Pull COGS data
@@ -34,9 +34,11 @@ export async function GET(req: NextRequest) {
       cogsMap.set(v.variantKey, v.totalCost || 0)
     }
 
-    // Fetch Shopify
-    const customers = await fetchCustomers()
-    const shopifyData = await processShopifyData(dateStart, dateEnd, customers)
+    // Fetch Shopify and Triple Whale in parallel
+    const [shopifyData, twRaw] = await Promise.all([
+      processShopifyData(dateStart, dateEnd),
+      fetchTWData(dateStart, dateEnd),
+    ])
 
     // Calculate COGS from units sold
     let totalCOGS = 0
@@ -45,8 +47,6 @@ export async function GET(req: NextRequest) {
       totalCOGS += units * unitCOGS
     }
 
-    // Fetch Triple Whale
-    const twRaw = await fetchTWData(dateStart, dateEnd)
     const twData = processTWData(twRaw)
 
     // Compute metrics
