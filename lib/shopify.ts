@@ -140,6 +140,8 @@ export async function processShopifyData(
 
   let newCustomerCount = 0
   const uniqueCustomerIds = new Set<string>()
+  const rangeStart = new Date(`${dateStart}T00:00:00`)
+  const rangeEnd = new Date(`${dateEnd}T23:59:59`)
 
   for (const order of orders) {
     if (EXCLUDED_STATUSES.has(order.financial_status)) continue
@@ -148,7 +150,13 @@ export async function processShopifyData(
     const customerId = order.customer.id
     if (uniqueCustomerIds.has(customerId)) continue
     uniqueCustomerIds.add(customerId)
-    if (order.customer.orders_count === 1) {
+
+    // Use customer.created_at: Shopify creates the customer record on their first-ever order,
+    // so this accurately identifies newly acquired customers within the date range.
+    // orders_count reflects the *current* total, not the count at order time, so it's
+    // always > 1 for repeat buyers and misses almost everyone on a subscription store.
+    const customerCreatedAt = new Date(order.customer.created_at)
+    if (customerCreatedAt >= rangeStart && customerCreatedAt <= rangeEnd) {
       newCustomerCount++
     }
   }
