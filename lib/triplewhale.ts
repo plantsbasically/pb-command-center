@@ -1,4 +1,4 @@
-const API_KEY = process.env.TRIPLEWHALE_API_KEY || ""
+const API_KEY = proces…_KEY || ""
 const BASE_URL = "https://api.triplewhale.com"
 const SHOPIFY_DOMAIN = (process.env.SHOPIFY_STORE_URL || "").replace(/^https?:\/\//, "").replace(/\/+$/, "") || "plantsbasically.myshopify.com"
 
@@ -21,8 +21,16 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
     },
   )
 
-  const raw = await res.json()
+  const raw: any = await res.json()
   if (!res.ok) return { raw, error: "TW API " + res.status }
+
+  // Debug: log titles and ids
+  if (Array.isArray(raw?.metrics)) {
+    console.log("[TW] Titles:", raw.metrics.map((m: any) => m.title).join(" | "))
+    console.log("[TW] IDs:", raw.metrics.map((m: any) => m.id).join(" | "))
+    console.log("[TW] MetricIDs:", raw.metrics.map((m: any) => m.metricId).join(" | "))
+  }
+
   return raw
 }
 
@@ -39,21 +47,27 @@ export function processTWData(rawData: any): TWProcessedData {
   if (!rawData) {
     return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "No response" }
   }
+
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
+
   if (Array.isArray(rawData?.metrics)) {
     for (const m of rawData.metrics) {
       const title = String(m.title || "").toLowerCase()
       const id = String(m.id || "").toLowerCase()
       const mid = String(m.metricId || "").toLowerCase()
-      const combined = title + " " + id + " " + mid
+      const key = title + "| " + id + "| " + mid
       const val = Number(m.values?.current ?? 0) || 0
-      console.log("[TW] title=" + title + " id=" + id + " val=" + val)
-      if (combined.includes("blended ad spend") || combined.includes("adspend")) adSpend = val
-      if (combined.includes("revenue") && !combined.includes("profit")) attributedRevenue = val
-      if (combined.includes("cac") || mid.includes("cac")) blendedCac = val
-      if (combined.includes("roas") || mid.includes("roas")) blendedRoas = val
+
+      console.log("[TW] key=" + key + " val=" + val)
+
+      if (title.includes("blended ad spend") || title.includes("ad spend") || mid.includes("adspend")) adSpend = val
+      else if (title.includes("revenue")) attributedRevenue = val
+      else if (title.includes("cac")) blendedCac = val
+      else if (title.includes("roas")) blendedRoas = val
     }
+
     console.log("[TW] Result: adSpend=" + adSpend + " rev=" + attributedRevenue + " cac=" + blendedCac + " roas=" + blendedRoas)
   }
+
   return { adSpend, attributedRevenue, blendedCac, blendedRoas, raw: rawData }
 }
