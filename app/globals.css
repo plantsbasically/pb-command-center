@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --color-positive: #059669;
+  --color-negative: #dc2626;
+  --color-warning: #d97706;
+  --color-brand: #4ade80;
+  --color-bg: #fafafa;
+  --color-card: #ffffff;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.positive { color: var(--color-positive); }
+.negative { color: var(--color-negative); }
+.warning { color: var(--color-warning); }
+
+.card {
+  @apply bg-white rounded-xl border border-zinc-200 p-4 shadow-sm;
+}
+
+.metric-big {
+  @apply text-2xl md:text-3xl font-bold tracking-tight;
+}
+
+.metric-label {
+  @apply text-xs text-zinc-500 uppercase tracking-wide;
+}
+
+.btn-primary {
+  @apply bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-zinc-700 transition-colors;
+}
+
+.btn-outline {
+  @apply border border-zinc-300 text-zinc-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-zinc-100 transition-colors;
+}
+
+input, select {
+  @apply border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent;
+}
