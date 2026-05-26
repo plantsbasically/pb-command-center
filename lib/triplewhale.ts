@@ -1,68 +1,76 @@
-const API_KEY = *** || ""
+const API_KEY = process.env.TRIPLEWHALE_API_KEY || ""
 const BASE_URL = "https://api.triplewhale.com"
-const SHOPIFY_DOMAIN = *** || ""
+// Try multiple env var names for the Shopify domain
+const SHOPIFY_DOMAIN = (process.env.SHOPIFY_STORE_URL || process.env.SHOPIFY_ADMIN_API_URL || process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/+$/, "")
 
 export async function fetchTWData(dateStart: string, dateEnd: string) {
   if (!API_KEY) {
-    console.error("[TW] No API key configured");
-    return null;
+    return { raw: null, error: "Missing TRIPLEWHALE_API_KEY env" }
   }
 
   const today = new Date()
   const todayHour = today.getHours() + 1
-  const shopDomain = SHOPIFY_DOMAIN.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  console.log("[TW] Request:", JSON.stringify({ shopDomain, period: { start: dateStart, end: dateEnd }, todayHour }));
+  const shopDomain = SHOPIFY_DOMAIN || "plantsbasically.myshopify.com"
+
+  console.log(`[TW] Key present: ${!!API_KEY}, Domain: "${shopDomain}"`)
 
   const res = await fetch(`${BASE_URL}/api/v2/summary-page/get-data`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+    },
     body: JSON.stringify({
-      shopDomain: shopDomain || "",
+      shopDomain: shopDomain,
       period: { start: dateStart, end: dateEnd },
       todayHour: Math.min(25, Math.max(1, todayHour)),
     }),
-  });
+  })
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`[TW] API error ${res.status}: ${errText}`);
-    return { error: errText };
+  let raw: any
+  try {
+    raw = await res.json()
+  } catch {
+    raw = await res.text()
   }
 
-  const data = await res.json();
-  console.log("[TW] Raw response:", JSON.stringify(data));
-  return data;
+  console.log(`[TW] Status: ${res.status}, Response: ${JSON.stringify(raw).slice(0, 300)}`)
+
+  if (!res.ok) {
+    return { raw, error: `TW API ${res.status}` }
+  }
+
+  return raw
 }
 
 export interface TWProcessedData {
-  adSpend: number;
-  attributedRevenue: number;
-  blendedCac: number;
-  blendedRoas: number;
-  error?: string;
+  adSpend: number
+  attributedRevenue: number
+  blendedCac: number
+  blendedRoas: number
+  error?: string
+  raw?: any
 }
 
 export function processTWData(rawData: any): TWProcessedData {
-  if (!rawData) return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "Triple Whale data unavailable" };
-  if (rawData.error) { console.error("[TW] Error:", JSON.stringify(rawData)); return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: String(rawData.error) }; }
-
-  let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0, found = false;
+  if (!rawData) {
+    return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "No response" }
+  }
+  // Raw response is { metrics: [{ metricName, value }] }
+  let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
 
   if (Array.isArray(rawData?.metrics)) {
-    console.log("[TW] Metrics found:", rawData.metrics.map((m: any) => m.metricName?.toLowerCase()).join(", "));
+    console.log("[TW] All metric names:", rawData.metrics.map((m: any) => m.metricName).join(", "))
     for (const m of rawData.metrics) {
-      const name = (m.metricName || "").toLowerCase().trim();
-      const val = parseFloat(m.value ?? "0") || 0;
-      console.log(`[TW] metric="${name}" value=${val}`);
-      if (name.includes("adspend") || name.includes("ad spend")) { adSpend = val; found = true; }
-      else if (name.includes("revenue")) attributedRevenue = val;
-      else if (name.includes("cac")) blendedCac = val;
-      else if (name.includes("roas")) blendedRoas = val;
+      const name = m.metricName?.toLowerCase() || ""
+      const val = parseFloat(m.value ?? "0") || 0
+      console.log(`[TW] "${name}" = ${val}`)
+      if (name.includes("adspend") || name.includes("ad_spend") || name.includes("ad spend")) adSpend = val
+      if (name.includes("revenue")) attributedRevenue = val
+      if (name.includes("cac")) blendedCac = val
+      if (name.includes("roas")) blendedRoas = val
     }
-  } else {
-    console.log("[TW] No metrics array. Keys:", rawData ? JSON.stringify(Object.keys(rawData)) : "null");
   }
 
-  if (!found) console.warn("[TW] No adspend metric found");
-  return { adSpend, attributedRevenue, blendedCac, blendedRoas };
+  return { adSpend, attributedRevenue, blendedCac, blendedRoas, raw: rawData }
 }
