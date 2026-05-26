@@ -281,7 +281,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl border border-red-200 p-8 max-w-lg text-center shadow-sm">
           <h2 className="text-xl font-semibold text-red-600 mb-2">Something went wrong</h2>
           <p className="text-zinc-500 mb-4">{error}</p>
-          <button onClick={fetchData} className="btn-primary">
+          <button onClick={() => fetchData(false)} className="btn-primary">
             Retry
           </button>
         </div>
