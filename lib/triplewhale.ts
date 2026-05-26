@@ -24,13 +24,6 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
   const raw: any = await res.json()
   if (!res.ok) return { raw, error: "TW API " + res.status }
 
-  // Debug: log titles and ids
-  if (Array.isArray(raw?.metrics)) {
-    console.log("[TW] Titles:", raw.metrics.map((m: any) => m.title).join(" | "))
-    console.log("[TW] IDs:", raw.metrics.map((m: any) => m.id).join(" | "))
-    console.log("[TW] MetricIDs:", raw.metrics.map((m: any) => m.metricId).join(" | "))
-  }
-
   return raw
 }
 
@@ -48,26 +41,54 @@ export function processTWData(rawData: any): TWProcessedData {
     return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "No response" }
   }
 
+  if (rawData.error) {
+    return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: rawData.error }
+  }
+
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
 
   if (Array.isArray(rawData?.metrics)) {
     for (const m of rawData.metrics) {
-      const title = String(m.title || "").toLowerCase()
+      const title = String(m.title || m.name || "").toLowerCase().trim()
       const id = String(m.id || "").toLowerCase()
       const mid = String(m.metricId || "").toLowerCase()
-      const key = title + "| " + id + "| " + mid
-      const val = Number(m.values?.current ?? 0) || 0
+      const val = Number(m.values?.current ?? m.value ?? m.total ?? 0) || 0
 
-      console.log("[TW] key=" + key + " val=" + val)
+      const isAdSpend =
+        title.includes("ad spend") ||
+        title.includes("adspend") ||
+        title === "spend" ||
+        mid.includes("adspend") ||
+        mid.includes("ad_spend") ||
+        id.includes("adspend") ||
+        id.includes("ad_spend")
 
-      if (title.includes("blended ad spend") || title.includes("ad spend") || mid.includes("adspend")) adSpend = val
-      else if (title.includes("revenue")) attributedRevenue = val
-      else if (title.includes("cac")) blendedCac = val
-      else if (title.includes("roas")) blendedRoas = val
+      const isRevenue =
+        title.includes("revenue") ||
+        mid.includes("revenue") ||
+        id.includes("revenue")
+
+      const isCac =
+        title.includes("cac") ||
+        mid.includes("cac") ||
+        id.includes("cac")
+
+      const isRoas =
+        title.includes("roas") ||
+        mid.includes("roas") ||
+        id.includes("roas")
+
+      if (isAdSpend && val > 0) adSpend = val
+      else if (isRevenue && val > 0) attributedRevenue = val
+      else if (isCac && val > 0) blendedCac = val
+      else if (isRoas && val > 0) blendedRoas = val
     }
-
-    console.log("[TW] Result: adSpend=" + adSpend + " rev=" + attributedRevenue + " cac=" + blendedCac + " roas=" + blendedRoas)
   }
+
+  // TW can also return top-level summary fields
+  if (adSpend === 0 && rawData.adSpend) adSpend = Number(rawData.adSpend) || 0
+  if (adSpend === 0 && rawData.totalAdSpend) adSpend = Number(rawData.totalAdSpend) || 0
+  if (attributedRevenue === 0 && rawData.revenue) attributedRevenue = Number(rawData.revenue) || 0
 
   return { adSpend, attributedRevenue, blendedCac, blendedRoas, raw: rawData }
 }

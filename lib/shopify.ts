@@ -1,12 +1,11 @@
 const STORE_URL = process.env.SHOPIFY_STORE_URL || ""
-const API_KEY = process.env.SHOPIFY_API_KEY || ""
 const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD || ""
-
 const BASE = STORE_URL.replace(/\/+$/, "")
+const SHOPIFY_API_BASE = `https://${BASE}/admin/api/2025-01`
 
-async function shopifyRequest<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+async function shopifyFetch(endpoint: string, params: Record<string, string> = {}) {
   const qs = new URLSearchParams(params).toString()
-  const url = `https://${BASE}/admin/api/2025-01/${endpoint}${qs ? "?" + qs : ""}`
+  const url = `${SHOPIFY_API_BASE}/${endpoint}${qs ? "?" + qs : ""}`
   const res = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
@@ -16,7 +15,13 @@ async function shopifyRequest<T>(endpoint: string, params: Record<string, string
   if (!res.ok) {
     throw new Error(`Shopify API ${res.status}: ${await res.text()}`)
   }
-  return res.json() as Promise<T>
+  return res
+}
+
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/)
+  return match ? match[1] : null
 }
 
 interface ShopifyOrderLineItem {
@@ -48,7 +53,6 @@ interface ShopifyOrder {
   total_price: string
   subtotal_price: string
   total_discounts: string
-  refund_total: string
   order_number: number
   created_at: string
   processed_at: string
@@ -66,29 +70,33 @@ interface CustomersResponse {
 }
 
 export async function fetchOrders(dateStart: string, dateEnd: string): Promise<ShopifyOrder[]> {
-  // Fetch up to 10 pages of 250 orders = 2500 orders max per date range
   const allOrders: ShopifyOrder[] = []
-  let sinceId: string | null = null
-  const sinceIdParam = "since_id"
 
-  for (let page = 0; page < 100; page++) {
-    const params: Record<string, string> = {
-      status: "any",
-      limit: "250",
-      created_at_min: dateStart,
-      created_at_max: dateEnd,
-    }
-    if (sinceId) {
-      params[sinceIdParam] = sinceId
-    }
+  // First page
+  const firstRes = await shopifyFetch("orders.json", {
+    status: "any",
+    limit: "250",
+    created_at_min: `${dateStart}T00:00:00`,
+    created_at_max: `${dateEnd}T23:59:59`,
+  })
+  const firstData: OrdersResponse = await firstRes.json()
+  allOrders.push(...firstData.orders)
 
-    const data = await shopifyRequest<OrdersResponse>("orders.json", params)
+  // Cursor pagination via Link header — reliable for large stores
+  let nextUrl = parseNextLink(firstRes.headers.get("link"))
+
+  while (nextUrl && allOrders.length < 25000) {
+    const res = await fetch(nextUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": ACCESS_TOKEN,
+      },
+    })
+    if (!res.ok) throw new Error(`Shopify pagination ${res.status}: ${await res.text()}`)
+    const data: OrdersResponse = await res.json()
     if (!data.orders.length) break
     allOrders.push(...data.orders)
-
-    const lastOrder = data.orders[data.orders.length - 1]
-    sinceId = lastOrder.id
-    if (data.orders.length < 250) break
+    nextUrl = parseNextLink(res.headers.get("link"))
   }
 
   return allOrders
@@ -96,23 +104,25 @@ export async function fetchOrders(dateStart: string, dateEnd: string): Promise<S
 
 export async function fetchCustomers(): Promise<ShopifyCustomer[]> {
   const allCustomers: ShopifyCustomer[] = []
-  let sinceId: string | null = null
 
-  for (let page = 0; page < 40; page++) {
-    const params: Record<string, string> = {
-      limit: "250",
-    }
-    if (sinceId) {
-      params["since_id"] = sinceId
-    }
+  const firstRes = await shopifyFetch("customers.json", { limit: "250" })
+  const firstData: CustomersResponse = await firstRes.json()
+  allCustomers.push(...firstData.customers)
 
-    const data = await shopifyRequest<CustomersResponse>("customers.json", params)
+  let nextUrl = parseNextLink(firstRes.headers.get("link"))
+
+  while (nextUrl && allCustomers.length < 100000) {
+    const res = await fetch(nextUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": ACCESS_TOKEN,
+      },
+    })
+    if (!res.ok) throw new Error(`Shopify customer pagination ${res.status}: ${await res.text()}`)
+    const data: CustomersResponse = await res.json()
     if (!data.customers.length) break
     allCustomers.push(...data.customers)
-
-    const lastCustomer = data.customers[data.customers.length - 1]
-    sinceId = lastCustomer.id
-    if (data.customers.length < 250) break
+    nextUrl = parseNextLink(res.headers.get("link"))
   }
 
   return allCustomers
@@ -139,11 +149,12 @@ export async function processShopifyData(
   let ordersCount = 0
   const variantUnitsSold: Record<string, number> = {}
 
+  // Exclude only voided/fully-refunded orders; count paid, authorized, partially_refunded, etc.
+  const EXCLUDED_STATUSES = new Set(["voided", "refunded"])
+
   for (const order of orders) {
-    if (!["paid", "partially_refunded"].includes(order.financial_status)) continue
-    const price = parseFloat(order.total_price)
-    const refundTotal = order.refund_total ? parseFloat(order.refund_total) : 0
-    revenue += price - refundTotal
+    if (EXCLUDED_STATUSES.has(order.financial_status)) continue
+    revenue += parseFloat(order.subtotal_price) || 0
     ordersCount++
 
     for (const item of order.line_items) {
@@ -156,17 +167,11 @@ export async function processShopifyData(
 
   const aov = ordersCount > 0 ? revenue / ordersCount : 0
 
-  // Customer analysis
-  const customerMap = new Map<string, ShopifyCustomer>()
-  for (const c of customers) {
-    customerMap.set(c.id, c)
-  }
-
   let newCustomerCount = 0
   const uniqueCustomerIds = new Set<string>()
 
   for (const order of orders) {
-    if (!["paid", "partially_refunded"].includes(order.financial_status)) continue
+    if (EXCLUDED_STATUSES.has(order.financial_status)) continue
     if (!order.customer) continue
 
     const customerId = order.customer.id
@@ -181,7 +186,7 @@ export async function processShopifyData(
     revenue,
     ordersCount,
     aov,
-    totalCOGS: 0, // Will be computed with COGS data
+    totalCOGS: 0,
     newCustomers: newCustomerCount,
     totalCustomers: uniqueCustomerIds.size,
     variantUnitsSold,
