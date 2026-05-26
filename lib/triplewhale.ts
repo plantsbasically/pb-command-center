@@ -1,6 +1,6 @@
 const API_KEY = *** || ""
 const BASE_URL = "https://api.triplewhale.com"
-const SHOPIFY_DOMAIN = proces…_URL || ""
+const SHOPIFY_DOMAIN = *** || ""
 
 export async function fetchTWData(dateStart: string, dateEnd: string) {
   if (!API_KEY) {
@@ -11,7 +11,6 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
   const today = new Date()
   const todayHour = today.getHours() + 1
   const shopDomain = SHOPIFY_DOMAIN.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-
   console.log("[TW] Request:", JSON.stringify({ shopDomain, period: { start: dateStart, end: dateEnd }, todayHour }));
 
   const res = await fetch(`${BASE_URL}/api/v2/summary-page/get-data`, {
@@ -35,12 +34,17 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
   return data;
 }
 
+export interface TWProcessedData {
+  adSpend: number;
+  attributedRevenue: number;
+  blendedCac: number;
+  blendedRoas: number;
+  error?: string;
+}
+
 export function processTWData(rawData: any): TWProcessedData {
-  if (!rawData) return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "Triple Whale data not available" };
-  if (rawData.error) {
-    console.error("[TW] Error:", JSON.stringify(rawData));
-    return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: String(rawData.error) };
-  }
+  if (!rawData) return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "Triple Whale data unavailable" };
+  if (rawData.error) { console.error("[TW] Error:", JSON.stringify(rawData)); return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: String(rawData.error) }; }
 
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0, found = false;
 
@@ -50,7 +54,7 @@ export function processTWData(rawData: any): TWProcessedData {
       const name = (m.metricName || "").toLowerCase().trim();
       const val = parseFloat(m.value ?? "0") || 0;
       console.log(`[TW] metric="${name}" value=${val}`);
-      if (name.includes("adspend") || name.includes("ad_spend") || name.includes("totalads")) { adSpend = val; found = true; }
+      if (name.includes("adspend") || name.includes("ad spend")) { adSpend = val; found = true; }
       else if (name.includes("revenue")) attributedRevenue = val;
       else if (name.includes("cac")) blendedCac = val;
       else if (name.includes("roas")) blendedRoas = val;
