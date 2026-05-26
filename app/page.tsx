@@ -386,10 +386,8 @@ export default function Dashboard() {
             },
           ].map((metric) => (
             <div key={metric.label} className="card">
-              <div className="flex items-baseline gap-2">
-                <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
-                {metric.pct && <div className={`text-sm font-medium ${metric.cls}`}>{metric.pct}</div>}
-              </div>
+              <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
+              {metric.pct && <div className={`text-sm font-semibold ${metric.cls} mt-0.5`}>{metric.pct}</div>}
               <div className="metric-label mt-1">{metric.label}</div>
               {metric.hint && <div className="text-xs text-zinc-400 mt-1 leading-snug">{metric.hint}</div>}
             </div>
