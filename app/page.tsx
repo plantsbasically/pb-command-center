@@ -354,40 +354,55 @@ export default function Dashboard() {
         {/* Row 1 — P&L Waterfall */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { label: "Revenue", value: fmt(m?.revenue || 0), cls: "", hint: null },
-            { label: "COGS", value: fmt(m?.cogs || 0), cls: "text-red-600", hint: null },
-            { label: "Gross Profit", value: fmt(m?.grossProfit || 0), cls: m && m.grossProfit >= 0 ? "positive" : "negative", hint: null },
+            { label: "Revenue", value: fmt(m?.revenue || 0), pct: null, cls: "", hint: null },
+            { label: "COGS", value: fmt(m?.cogs || 0), pct: null, cls: "text-red-600", hint: null },
+            {
+              label: "Gross Profit",
+              value: fmt(m?.grossProfit || 0),
+              pct: fmtPct(m?.grossMarginPct || 0),
+              cls: m && m.grossProfit >= 0 ? "positive" : "negative",
+              hint: null,
+            },
             {
               label: "Contribution Profit",
               value: fmt(m?.contributionProfit || 0),
+              pct: fmtPct(m?.contributionMarginPct || 0),
               cls: m ? (m.contributionProfit >= 0 ? "positive" : "negative") : "",
-              hint: "revenue left after product cost & ads — if this is negative, scaling loses money",
+              hint: "revenue left after product cost & ads — if negative, scaling loses money",
             },
-            { label: "Net Profit", value: fmt(m?.netProfit || 0), cls: m && m.netProfit >= 0 ? "positive" : "negative", hint: null },
+            {
+              label: "Net Profit",
+              value: fmt(m?.netProfit || 0),
+              pct: fmtPct(m?.netMarginPct || 0),
+              cls: m && m.netProfit >= 0 ? "positive" : "negative",
+              hint: null,
+            },
             {
               label: "LTV:CAC",
               value: m ? m.ltvCacRatio.toFixed(2) + (isFinite(m.ltvCacRatio) ? "×" : "") : "—",
+              pct: null,
               cls: ltvCacStatus,
               hint: null,
             },
           ].map((metric) => (
             <div key={metric.label} className="card">
-              <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
+              <div className="flex items-baseline gap-2">
+                <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
+                {metric.pct && <div className={`text-sm font-medium ${metric.cls}`}>{metric.pct}</div>}
+              </div>
               <div className="metric-label mt-1">{metric.label}</div>
               {metric.hint && <div className="text-xs text-zinc-400 mt-1 leading-snug">{metric.hint}</div>}
             </div>
           ))}
         </div>
 
-        {/* Row 2 — Secondary Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Row 2 — Acquisition & Customer Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "Gross Margin", value: fmtPct(m?.grossMarginPct || 0) },
-            { label: "Contribution Margin", value: fmtPct(m?.contributionMarginPct || 0) },
-            { label: "Net Margin", value: fmtPct(m?.netMarginPct || 0) },
             { label: "Ad Spend", value: fmt(m?.adSpend || 0) },
             { label: "CAC", value: m ? fmt(m.cac) : "—" },
             { label: "LTV", value: m ? fmt(m.ltv) : "—" },
+            { label: "AOV", value: m ? fmt(m.aov) : "—" },
           ].map((metric) => (
             <div key={metric.label} className="card">
               <div className="metric-big">{metric.value}</div>
@@ -399,10 +414,9 @@ export default function Dashboard() {
         {/* Row 3 — Orders & Customers */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "Orders", value: m?.ordersCount || 0 },
-            { label: "AOV", value: m ? fmt(m.aov) : "—" },
-            { label: "New Customers", value: m?.newCustomers || 0 },
-            { label: "Total Customers", value: m?.totalCustomers || 0 },
+            { label: "Orders", value: m?.ordersCount?.toLocaleString() || 0 },
+            { label: "New Customers", value: m?.newCustomers?.toLocaleString() || 0 },
+            { label: "Total Customers", value: m?.totalCustomers?.toLocaleString() || 0 },
           ].map((metric) => (
             <div key={metric.label} className="card">
               <div className="metric-big">{metric.value}</div>
