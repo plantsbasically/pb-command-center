@@ -1,4 +1,4 @@
-const API_KEY = *** || ""
+const API_KEY = process.env.TRIPLEWHALE_API_KEY || ""
 const BASE_URL = "https://api.triplewhale.com"
 const SHOPIFY_DOMAIN = (process.env.SHOPIFY_STORE_URL || "").replace(/^https?:\/\//, "").replace(/\/+$/, "") || "plantsbasically.myshopify.com"
 
