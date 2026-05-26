@@ -1,0 +1,46 @@
+{
+  "variants": [
+    {
+      "variantKey": "JJ33DR-1",
+      "variantName": "Juicy Joint 33ml - 1 Bottle",
+      "shopifyVariantId": "",
+      "lineItems": [
+        { "name": "Bottle", "cost": 2.50, "quantity": 1 },
+        { "name": "Dropper Cap", "cost": 0.75, "quantity": 1 },
+        { "name": "Label", "cost": 0.30, "quantity": 1 },
+        { "name": "Single Bottle Box", "cost": 0.85, "quantity": 1 },
+        { "name": "Crinkle Fill", "cost": 0.15, "quantity": 1 },
+        { "name": "3PL Pick Fee (Tier 1)", "cost": 1.50, "quantity": 1 }
+      ],
+      "totalCost": 6.05
+    },
+    {
+      "variantKey": "JJ33DR-2",
+      "variantName": "Juicy Joint 33ml - 2 Pack",
+      "shopifyVariantId": "",
+      "lineItems": [
+        { "name": "Bottle", "cost": 2.50, "quantity": 2 },
+        { "name": "Dropper Cap", "cost": 0.75, "quantity": 2 },
+        { "name": "Label", "cost": 0.30, "quantity": 2 },
+        { "name": "2-Pack Box", "cost": 1.20, "quantity": 1 },
+        { "name": "Crinkle Fill", "cost": 0.15, "quantity": 1 },
+        { "name": "3PL Pick Fee (Tier 1)", "cost": 1.50, "quantity": 1 }
+      ],
+      "totalCost": 9.65
+    },
+    {
+      "variantKey": "JJ33DR-3",
+      "variantName": "Juicy Joint 33ml - 3 Pack",
+      "shopifyVariantId": "",
+      "lineItems": [
+        { "name": "Bottle", "cost": 2.50, "quantity": 3 },
+        { "name": "Dropper Cap", "cost": 0.75, "quantity": 3 },
+        { "name": "Label", "cost": 0.30, "quantity": 3 },
+        { "name": "3-Pack Box", "cost": 1.50, "quantity": 1 },
+        { "name": "Crinkle Fill", "cost": 0.15, "quantity": 1 },
+        { "name": "3PL Pick Fee (Tier 2)", "cost": 1.75, "quantity": 1 }
+      ],
+      "totalCost": 13.95
+    }
+  ]
+}
