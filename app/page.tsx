@@ -135,6 +135,7 @@ export default function Dashboard() {
   const [newFixedName, setNewFixedName] = useState("")
   const [newFixedCost, setNewFixedCost] = useState("")
   const [syncing, setSyncing] = useState(false)
+  const [pushingToTW, setPushingToTW] = useState(false)
   const [showAllDatePresets, setShowAllDatePresets] = useState(false)
 
   const fetchData = useCallback(async (bust = false) => {
@@ -196,13 +197,6 @@ export default function Dashboard() {
           }
         }))
         setEditingCOGS(false)
-        // Surface TW sync result as a non-blocking notice
-        const tw = json.twSync
-        if (tw?.pushed > 0) {
-          // Silently successful — no toast needed
-        } else if (tw?.errors?.length) {
-          setError(`COGS saved. TW sync warning: ${tw.errors[0]}`)
-        }
         fetchData(true)
       } else {
         setError(json.error || "Failed to save COGS")
@@ -319,6 +313,31 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const pushCOGSToTW = async () => {
+    setPushingToTW(true)
+    try {
+      const res = await fetch("/api/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pushCOGSToTW" }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        const tw = json.twSync
+        if (tw.errors?.length) {
+          setError(`TW push: ${tw.pushed} updated, ${tw.errors.length} failed — ${tw.errors[0]}`)
+        }
+        // Silent success — TW will process within ~5 min
+      } else {
+        setError(json.error || "TW push failed")
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setPushingToTW(false)
     }
   }
 
@@ -592,9 +611,20 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-base">COGS by Variant</h2>
             {!editingCOGS ? (
-              <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
-                Edit COGS
-              </button>
+              <div className="flex gap-2 items-center">
+                <button
+                  type="button"
+                  onClick={pushCOGSToTW}
+                  disabled={pushingToTW || variants.length === 0}
+                  className="btn-outline text-xs disabled:opacity-40"
+                  title="Push your configured COGS costs to Triple Whale. Only variants with totalCost > 0 are sent — existing TW costs are never zeroed out."
+                >
+                  {pushingToTW ? "Pushing..." : "↑ Push to TW"}
+                </button>
+                <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
+                  Edit COGS
+                </button>
+              </div>
             ) : (
               <div className="flex gap-2 flex-wrap">
                 <button
