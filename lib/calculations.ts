@@ -21,6 +21,9 @@ export interface MetricsResult {
   amazonCOGS: number      // estimated: amazonRevenue × shopify COGS rate
   grossProfit: number
   grossMarginPct: number
+  shippingCollected: number      // what customers paid for shipping on Shopify orders
+  fulfillmentInvoiceTotal: number // 3PL invoice total prorated for the date range
+  netFulfillmentCost: number     // fulfillmentInvoiceTotal - shippingCollected (0 if no invoices)
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
@@ -48,6 +51,8 @@ export function computeMetrics(params: {
   shopifyNewCustomers: number
   shopifyTotalCustomers: number
   shopifyCogsByVariantSold: number  // exact COGS from Shopify variant unit costs
+  shippingCollected: number         // from Shopify orders
+  fulfillmentInvoiceTotal: number   // prorated 3PL invoice for the date range
   adSpend: number
   twLtv: number           // TW all-time avg LTV — not date-range dependent
   fixedCostsMonthly: number[]
@@ -61,6 +66,8 @@ export function computeMetrics(params: {
     shopifyNewCustomers,
     shopifyTotalCustomers,
     shopifyCogsByVariantSold,
+    shippingCollected,
+    fulfillmentInvoiceTotal,
     adSpend,
     twLtv,
     fixedCostsMonthly,
@@ -88,7 +95,14 @@ export function computeMetrics(params: {
   const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
   const fixedCosts = totalFixedMonthly * (daysInRange / daysInMonth)
 
-  const contributionProfit = grossProfit - adSpend
+  // Net fulfillment cost = 3PL invoice − shipping collected from customers.
+  // Only applied when invoices are entered; avoids artificially boosting profit
+  // when shipping collected has no corresponding invoice to compare against.
+  const netFulfillmentCost = fulfillmentInvoiceTotal > 0
+    ? fulfillmentInvoiceTotal - shippingCollected
+    : 0
+
+  const contributionProfit = grossProfit - adSpend - netFulfillmentCost
   const contributionMarginPct = revenue > 0 ? (contributionProfit / revenue) * 100 : 0
 
   const netProfit = contributionProfit - fixedCosts
@@ -111,6 +125,9 @@ export function computeMetrics(params: {
     amazonCOGS,
     grossProfit,
     grossMarginPct,
+    shippingCollected,
+    fulfillmentInvoiceTotal,
+    netFulfillmentCost,
     adSpend,
     contributionProfit,
     contributionMarginPct,

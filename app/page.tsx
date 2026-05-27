@@ -6,10 +6,13 @@ interface Metrics {
   shopifyRevenue: number
   amazonRevenue: number
   cogs: number
-  shopifyCOGS: number    // exact, from variant unit costs
-  amazonCOGS: number     // estimated: amazonRevenue × shopify COGS rate
+  shopifyCOGS: number
+  amazonCOGS: number
   grossProfit: number
   grossMarginPct: number
+  shippingCollected: number
+  fulfillmentInvoiceTotal: number
+  netFulfillmentCost: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
@@ -23,6 +26,14 @@ interface Metrics {
   ltvCacRatio: number
   ordersCount: number
   aov: number
+}
+
+interface FulfillmentInvoice {
+  id: number
+  label: string
+  periodStart: string
+  periodEnd: string
+  amount: number
 }
 
 interface COGSVariant {
@@ -136,6 +147,12 @@ export default function Dashboard() {
   const [newFixedCost, setNewFixedCost] = useState("")
   const [syncing, setSyncing] = useState(false)
   const [pushingToTW, setPushingToTW] = useState(false)
+  const [fulfillmentInvoices, setFulfillmentInvoices] = useState<FulfillmentInvoice[]>([])
+  const [newInvoiceLabel, setNewInvoiceLabel] = useState("")
+  const [newInvoiceStart, setNewInvoiceStart] = useState("")
+  const [newInvoiceEnd, setNewInvoiceEnd] = useState("")
+  const [newInvoiceAmount, setNewInvoiceAmount] = useState("")
+  const [addingInvoice, setAddingInvoice] = useState(false)
   const [showAllDatePresets, setShowAllDatePresets] = useState(false)
 
   const fetchData = useCallback(async (bust = false) => {
@@ -156,6 +173,7 @@ export default function Dashboard() {
       setVariants(json.variants || [])
       setFixedCosts(json.fixedCosts || [])
       setCogsBreakdown(json.cogsBreakdown || [])
+      setFulfillmentInvoices(json.fulfillmentInvoices || [])
       setTwData(json.twData || null)
     } catch (err: any) {
       setError(err.message)
@@ -338,6 +356,60 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setPushingToTW(false)
+    }
+  }
+
+  const submitInvoice = async () => {
+    if (!newInvoiceAmount || !newInvoiceStart || !newInvoiceEnd) return
+    setAddingInvoice(true)
+    try {
+      const res = await fetch("/api/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addFulfillmentInvoice",
+          data: {
+            label: newInvoiceLabel.trim() || "Nice Commerce Invoice",
+            periodStart: newInvoiceStart,
+            periodEnd: newInvoiceEnd,
+            amount: parseFloat(newInvoiceAmount) || 0,
+          },
+        }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        setFulfillmentInvoices(json.all)
+        setNewInvoiceLabel("")
+        setNewInvoiceStart("")
+        setNewInvoiceEnd("")
+        setNewInvoiceAmount("")
+        fetchData(true)
+      } else {
+        setError(json.error || "Failed to add invoice")
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setAddingInvoice(false)
+    }
+  }
+
+  const removeInvoice = async (id: number) => {
+    try {
+      const res = await fetch("/api/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteFulfillmentInvoice", data: { id } }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        setFulfillmentInvoices(json.all)
+        fetchData(true)
+      } else {
+        setError(json.error || "Failed to delete invoice")
+      }
+    } catch (err: any) {
+      setError(err.message)
     }
   }
 
@@ -527,11 +599,20 @@ export default function Dashboard() {
               hint: null,
             },
             {
+              label: "Fulfillment Net",
+              value: m && m.fulfillmentInvoiceTotal > 0 ? fmt(m.netFulfillmentCost) : "—",
+              pct: null,
+              cls: m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "positive" : "text-orange-600") : "text-zinc-400",
+              hint: m && m.fulfillmentInvoiceTotal > 0
+                ? `3PL ${fmt(m.fulfillmentInvoiceTotal)} − shipping collected ${fmt(m.shippingCollected)}`
+                : "Add a Nice Commerce invoice below",
+            },
+            {
               label: "Contribution Profit",
               value: fmt(m?.contributionProfit || 0),
               pct: fmtPct(m?.contributionMarginPct || 0),
               cls: m ? (m.contributionProfit >= 0 ? "positive" : "negative") : "",
-              hint: "revenue left after product cost & ads — if negative, scaling loses money",
+              hint: "after product cost, fulfillment net & ad spend",
             },
             {
               label: "Net Profit",
@@ -773,6 +854,117 @@ export default function Dashboard() {
               </table>
             </div>
           )}
+        </div>
+
+        {/* Fulfillment — 3PL invoices vs. shipping collected */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-semibold text-base">Fulfillment</h2>
+              <p className="text-xs text-zinc-400 mt-0.5">Nice Commerce invoices vs. shipping collected from customers</p>
+            </div>
+          </div>
+
+          {/* Summary stats */}
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="bg-zinc-50 rounded-lg p-3">
+              <div className="text-sm font-semibold text-zinc-700">{m ? fmt(m.shippingCollected) : "—"}</div>
+              <div className="text-xs text-zinc-400 mt-0.5">Shipping collected (period)</div>
+            </div>
+            <div className="bg-zinc-50 rounded-lg p-3">
+              <div className="text-sm font-semibold text-zinc-700">
+                {m && m.fulfillmentInvoiceTotal > 0 ? fmt(m.fulfillmentInvoiceTotal) : "—"}
+              </div>
+              <div className="text-xs text-zinc-400 mt-0.5">3PL invoice (prorated to period)</div>
+            </div>
+            <div className={`rounded-lg p-3 ${m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "bg-green-50" : "bg-orange-50") : "bg-zinc-50"}`}>
+              <div className={`text-sm font-semibold ${m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "text-green-700" : "text-orange-700") : "text-zinc-400"}`}>
+                {m && m.fulfillmentInvoiceTotal > 0 ? fmt(m.netFulfillmentCost) : "—"}
+              </div>
+              <div className="text-xs text-zinc-400 mt-0.5">Net fulfillment cost</div>
+            </div>
+          </div>
+
+          {/* Invoice list */}
+          {fulfillmentInvoices.length > 0 && (
+            <div className="mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-zinc-500 text-xs uppercase border-b border-zinc-200">
+                    <th className="text-left py-2 px-2 font-medium">Invoice</th>
+                    <th className="text-left py-2 px-2 font-medium">Period</th>
+                    <th className="text-right py-2 px-2 font-medium">Amount</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fulfillmentInvoices.map((inv) => (
+                    <tr key={inv.id} className="border-b border-zinc-100">
+                      <td className="py-2.5 px-2 text-sm">{inv.label || "Nice Commerce Invoice"}</td>
+                      <td className="py-2.5 px-2 text-xs text-zinc-500">{inv.periodStart} → {inv.periodEnd}</td>
+                      <td className="py-2.5 px-2 text-right font-medium">{fmt(inv.amount)}</td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => removeInvoice(inv.id)}
+                          className="text-zinc-400 hover:text-red-500 px-1 text-lg leading-none"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add invoice form */}
+          <div className="border-t border-zinc-100 pt-4">
+            <div className="text-xs font-medium text-zinc-500 uppercase mb-3">Add Nice Commerce Invoice</div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <input
+                value={newInvoiceLabel}
+                onChange={(e) => setNewInvoiceLabel(e.target.value)}
+                placeholder="Nice Commerce — May 2025"
+                className="md:col-span-1"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={newInvoiceStart}
+                  onChange={(e) => setNewInvoiceStart(e.target.value)}
+                  className="flex-1"
+                />
+                <span className="text-zinc-400 text-xs">→</span>
+                <input
+                  type="date"
+                  value={newInvoiceEnd}
+                  onChange={(e) => setNewInvoiceEnd(e.target.value)}
+                  className="flex-1"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 text-sm">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newInvoiceAmount}
+                  onChange={(e) => setNewInvoiceAmount(e.target.value)}
+                  placeholder="Invoice total"
+                  className="flex-1"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={submitInvoice}
+                disabled={addingInvoice || !newInvoiceAmount || !newInvoiceStart || !newInvoiceEnd}
+                className="btn-primary disabled:opacity-40"
+              >
+                {addingInvoice ? "Adding..." : "+ Add Invoice"}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Row 5 — Fixed Operating Costs */}

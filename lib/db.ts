@@ -41,6 +41,16 @@ async function ensureSchema() {
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS fulfillment_invoices (
+      id           SERIAL PRIMARY KEY,
+      label        TEXT NOT NULL DEFAULT '',
+      period_start DATE NOT NULL,
+      period_end   DATE NOT NULL,
+      amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
   schemaReady = true
 }
 
@@ -134,4 +144,49 @@ export async function saveFixedCosts(lineItems: FixedCostRow[]): Promise<void> {
       VALUES (${item.name}, ${item.monthlyCost}, NOW())
     `
   }
+}
+
+export interface FulfillmentInvoiceRow {
+  id: number
+  label: string
+  periodStart: string  // YYYY-MM-DD
+  periodEnd: string    // YYYY-MM-DD
+  amount: number
+}
+
+export async function getFulfillmentInvoices(): Promise<FulfillmentInvoiceRow[]> {
+  const sql = getSql()
+  await ensureSchema()
+  const rows = await sql`SELECT * FROM fulfillment_invoices ORDER BY period_start DESC`
+  return rows.map((r) => ({
+    id: Number(r.id),
+    label: r.label as string,
+    periodStart: (r.period_start as Date).toISOString().split("T")[0],
+    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    amount: Number(r.amount),
+  }))
+}
+
+export async function addFulfillmentInvoice(invoice: Omit<FulfillmentInvoiceRow, "id">): Promise<FulfillmentInvoiceRow> {
+  const sql = getSql()
+  await ensureSchema()
+  const rows = await sql`
+    INSERT INTO fulfillment_invoices (label, period_start, period_end, amount)
+    VALUES (${invoice.label}, ${invoice.periodStart}, ${invoice.periodEnd}, ${invoice.amount})
+    RETURNING *
+  `
+  const r = rows[0]
+  return {
+    id: Number(r.id),
+    label: r.label as string,
+    periodStart: (r.period_start as Date).toISOString().split("T")[0],
+    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    amount: Number(r.amount),
+  }
+}
+
+export async function deleteFulfillmentInvoice(id: number): Promise<void> {
+  const sql = getSql()
+  await ensureSchema()
+  await sql`DELETE FROM fulfillment_invoices WHERE id = ${id}`
 }

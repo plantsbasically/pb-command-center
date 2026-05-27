@@ -35,15 +35,37 @@ export async function GET(req: NextRequest) {
     const { computeMetrics } = await import("@/lib/calculations")
     const { processShopifyData } = await import("@/lib/shopify")
     const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
-    const { getCogsVariants, getFixedCosts } = await import("@/lib/db")
+    const { getCogsVariants, getFixedCosts, getFulfillmentInvoices } = await import("@/lib/db")
 
-    // All four fetches run in parallel
-    const [cogsVariants, fixedCostItems, shopifyData, twRaw] = await Promise.all([
+    // All fetches run in parallel
+    const [cogsVariants, fixedCostItems, fulfillmentInvoices, shopifyData, twRaw] = await Promise.all([
       getCogsVariants(),
       getFixedCosts(),
+      getFulfillmentInvoices(),
       processShopifyData(dateStart, dateEnd),
       fetchTWData(dateStart, dateEnd),
     ])
+
+    // Prorate invoices that overlap with the selected date range.
+    // e.g. "last 30 days" against a monthly invoice gives the proportional slice.
+    function prorateInvoices(invoices: typeof fulfillmentInvoices): number {
+      const rangeStart = new Date(dateStart)
+      const rangeEnd = new Date(dateEnd)
+      let total = 0
+      for (const inv of invoices) {
+        const invStart = new Date(inv.periodStart)
+        const invEnd = new Date(inv.periodEnd)
+        const overlapStart = new Date(Math.max(rangeStart.getTime(), invStart.getTime()))
+        const overlapEnd = new Date(Math.min(rangeEnd.getTime(), invEnd.getTime()))
+        if (overlapStart > overlapEnd) continue
+        const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1
+        const invoiceDays = Math.round((invEnd.getTime() - invStart.getTime()) / 86400000) + 1
+        total += inv.amount * (overlapDays / invoiceDays)
+      }
+      return total
+    }
+
+    const fulfillmentInvoiceTotal = prorateInvoices(fulfillmentInvoices)
 
     const cogsMap = new Map<string, number>()
     for (const v of cogsVariants) {
@@ -66,6 +88,8 @@ export async function GET(req: NextRequest) {
       shopifyNewCustomers: shopifyData.newCustomers,
       shopifyTotalCustomers: shopifyData.totalCustomers,
       shopifyCogsByVariantSold: totalCOGS,
+      shippingCollected: shopifyData.shippingCollected,
+      fulfillmentInvoiceTotal,
       adSpend: twData.adSpend,
       twLtv: twData.ltv,
       fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
@@ -85,6 +109,7 @@ export async function GET(req: NextRequest) {
       cogsBreakdown,
       variants: cogsVariants,
       fixedCosts: fixedCostItems,
+      fulfillmentInvoices,
       twData,
     }
 

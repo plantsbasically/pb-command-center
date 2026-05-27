@@ -109,6 +109,7 @@ interface ShopifyOrder {
   line_items: ShopifyOrderLineItem[]
   customer: ShopifyCustomer | null
   tags: string
+  total_shipping_price_set: { shop_money: { amount: string } } | null
 }
 
 interface OrdersResponse {
@@ -158,6 +159,7 @@ export interface ProcessedShopifyData {
   newCustomers: number
   totalCustomers: number
   variantUnitsSold: Record<string, number>
+  shippingCollected: number  // gross shipping charged to customers (net of shipping discounts)
 }
 
 export async function processShopifyData(
@@ -168,6 +170,7 @@ export async function processShopifyData(
 
   let revenue = 0
   let ordersCount = 0
+  let shippingCollected = 0
   const variantUnitsSold: Record<string, number> = {}
 
   // Exclude only voided/fully-refunded orders; count paid, authorized, partially_refunded, etc.
@@ -176,6 +179,7 @@ export async function processShopifyData(
   for (const order of orders) {
     if (EXCLUDED_STATUSES.has(order.financial_status)) continue
     revenue += parseFloat(order.subtotal_price) || 0
+    shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
 
     for (const item of order.line_items) {
@@ -219,5 +223,6 @@ export async function processShopifyData(
     newCustomers: newCustomerCount,
     totalCustomers: uniqueCustomerIds.size,
     variantUnitsSold,
+    shippingCollected,
   }
 }
