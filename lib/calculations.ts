@@ -16,7 +16,9 @@ export interface MetricsResult {
   revenue: number         // blended total (Shopify + Amazon)
   shopifyRevenue: number
   amazonRevenue: number
-  cogs: number
+  cogs: number            // blended COGS (Shopify actual + Amazon estimated)
+  shopifyCOGS: number     // exact, from variant unit costs
+  amazonCOGS: number      // estimated: amazonRevenue × shopify COGS rate
   grossProfit: number
   grossMarginPct: number
   adSpend: number
@@ -45,7 +47,7 @@ export function computeMetrics(params: {
   shopifyAOV: number
   shopifyNewCustomers: number
   shopifyTotalCustomers: number
-  cogsByVariantSold: number
+  shopifyCogsByVariantSold: number  // exact COGS from Shopify variant unit costs
   adSpend: number
   twLtv: number           // TW all-time avg LTV — not date-range dependent
   fixedCostsMonthly: number[]
@@ -58,7 +60,7 @@ export function computeMetrics(params: {
     shopifyAOV,
     shopifyNewCustomers,
     shopifyTotalCustomers,
-    cogsByVariantSold,
+    shopifyCogsByVariantSold,
     adSpend,
     twLtv,
     fixedCostsMonthly,
@@ -66,7 +68,14 @@ export function computeMetrics(params: {
   } = params
 
   const revenue = shopifyRevenue + amazonRevenue
-  const cogs = cogsByVariantSold
+
+  // Amazon COGS: estimated by applying the Shopify blended COGS rate to Amazon revenue.
+  // We don't have SKU-level Amazon unit data, so this is the best available estimate.
+  const shopifyCogsRate = shopifyRevenue > 0 ? shopifyCogsByVariantSold / shopifyRevenue : 0
+  const amazonCOGS = amazonRevenue * shopifyCogsRate
+  const shopifyCOGS = shopifyCogsByVariantSold
+  const cogs = shopifyCOGS + amazonCOGS
+
   const grossProfit = revenue - cogs
   const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0
 
@@ -98,6 +107,8 @@ export function computeMetrics(params: {
     shopifyRevenue,
     amazonRevenue,
     cogs,
+    shopifyCOGS,
+    amazonCOGS,
     grossProfit,
     grossMarginPct,
     adSpend,

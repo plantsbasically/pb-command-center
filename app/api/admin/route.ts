@@ -39,7 +39,18 @@ export async function PUT(req: NextRequest) {
       }))
       await saveCogsVariants(variants)
       const updated = await getCogsVariants()
-      return NextResponse.json({ ok: true, data: { variants: updated } })
+
+      // Push COGS to Triple Whale Enrich Products API so TW's own P&L reflects our costs.
+      // Non-fatal: TW sync errors are surfaced as warnings but don't fail the save.
+      let twSync = { pushed: 0, skipped: 0, errors: [] as string[] }
+      try {
+        const { pushCOGSToTW } = await import("@/lib/triplewhale")
+        twSync = await pushCOGSToTW(updated)
+      } catch (e: any) {
+        twSync = { pushed: 0, skipped: updated.length, errors: [e.message] }
+      }
+
+      return NextResponse.json({ ok: true, data: { variants: updated }, twSync })
     }
 
     if (action === "updateFixedCosts") {

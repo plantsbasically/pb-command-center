@@ -19,14 +19,19 @@ async function ensureSchema() {
   const sql = getSql()
   await sql`
     CREATE TABLE IF NOT EXISTS cogs_variants (
-      id          SERIAL PRIMARY KEY,
-      variant_key TEXT UNIQUE NOT NULL,
-      variant_name TEXT NOT NULL,
-      shopify_variant_id TEXT NOT NULL DEFAULT '',
-      line_items  JSONB NOT NULL DEFAULT '[]',
-      total_cost  NUMERIC(10,4) NOT NULL DEFAULT 0,
-      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                  SERIAL PRIMARY KEY,
+      variant_key         TEXT UNIQUE NOT NULL,
+      variant_name        TEXT NOT NULL,
+      shopify_variant_id  TEXT NOT NULL DEFAULT '',
+      line_items          JSONB NOT NULL DEFAULT '[]',
+      total_cost          NUMERIC(10,4) NOT NULL DEFAULT 0,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `
+  // Idempotent migration: add shopify_product_id if the table was created before this column existed
+  await sql`
+    ALTER TABLE cogs_variants
+    ADD COLUMN IF NOT EXISTS shopify_product_id TEXT NOT NULL DEFAULT ''
   `
   await sql`
     CREATE TABLE IF NOT EXISTS fixed_costs (
@@ -43,6 +48,7 @@ export interface COGSVariantRow {
   variantKey: string
   variantName: string
   shopifyVariantId: string
+  shopifyProductId: string  // Shopify product ID — required for TW COGS enrichment API
   lineItems: { name: string; cost: number; quantity: number }[]
   totalCost: number
 }
@@ -71,6 +77,7 @@ export async function getCogsVariants(): Promise<COGSVariantRow[]> {
     variantKey: r.variant_key as string,
     variantName: r.variant_name as string,
     shopifyVariantId: r.shopify_variant_id as string,
+    shopifyProductId: (r.shopify_product_id as string) || "",
     lineItems: r.line_items as COGSVariantRow["lineItems"],
     totalCost: Number(r.total_cost),
   }))
@@ -82,11 +89,12 @@ export async function saveCogsVariants(variants: COGSVariantRow[]): Promise<void
   await sql`DELETE FROM cogs_variants`
   for (const v of variants) {
     await sql`
-      INSERT INTO cogs_variants (variant_key, variant_name, shopify_variant_id, line_items, total_cost, updated_at)
+      INSERT INTO cogs_variants (variant_key, variant_name, shopify_variant_id, shopify_product_id, line_items, total_cost, updated_at)
       VALUES (
         ${v.variantKey},
         ${v.variantName},
         ${v.shopifyVariantId || ""},
+        ${v.shopifyProductId || ""},
         ${sql.json(v.lineItems)},
         ${v.totalCost},
         NOW()

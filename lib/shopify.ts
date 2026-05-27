@@ -28,6 +28,7 @@ export interface ShopifyVariantSummary {
   variantKey: string        // SKU (preferred) or Shopify variant ID — matches order line items
   variantName: string       // "Product Title" or "Product Title - Variant Title"
   shopifyVariantId: string
+  shopifyProductId: string  // Shopify product ID — required for TW COGS enrichment API
 }
 
 export async function fetchProducts(): Promise<ShopifyVariantSummary[]> {
@@ -46,7 +47,12 @@ export async function fetchProducts(): Promise<ShopifyVariantSummary[]> {
         const variantKey = variant.sku?.trim() || String(variant.id)
         const variantTitle = variant.title === "Default Title" ? "" : variant.title
         const variantName = variantTitle ? `${product.title} - ${variantTitle}` : product.title
-        results.push({ variantKey, variantName, shopifyVariantId: String(variant.id) })
+        results.push({
+          variantKey,
+          variantName,
+          shopifyVariantId: String(variant.id),
+          shopifyProductId: String(product.id),
+        })
       }
     }
   }

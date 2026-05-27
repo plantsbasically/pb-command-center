@@ -6,6 +6,8 @@ interface Metrics {
   shopifyRevenue: number
   amazonRevenue: number
   cogs: number
+  shopifyCOGS: number    // exact, from variant unit costs
+  amazonCOGS: number     // estimated: amazonRevenue × shopify COGS rate
   grossProfit: number
   grossMarginPct: number
   adSpend: number
@@ -27,6 +29,7 @@ interface COGSVariant {
   variantKey: string
   variantName: string
   shopifyVariantId: string
+  shopifyProductId: string
   lineItems: { name: string; cost: number; quantity: number }[]
   totalCost: number
 }
@@ -193,6 +196,13 @@ export default function Dashboard() {
           }
         }))
         setEditingCOGS(false)
+        // Surface TW sync result as a non-blocking notice
+        const tw = json.twSync
+        if (tw?.pushed > 0) {
+          // Silently successful — no toast needed
+        } else if (tw?.errors?.length) {
+          setError(`COGS saved. TW sync warning: ${tw.errors[0]}`)
+        }
         fetchData(true)
       } else {
         setError(json.error || "Failed to save COGS")
@@ -271,6 +281,7 @@ export default function Dashboard() {
         variantKey: `NEW-${Date.now()}`,
         variantName: "New Variant",
         shopifyVariantId: "",
+        shopifyProductId: "",
         lineItems: [],
         totalCost: 0,
       },
@@ -284,7 +295,7 @@ export default function Dashboard() {
       const json = await res.json()
       if (!json.ok) throw new Error(json.error || "Sync failed")
 
-      const shopifyVariants: { variantKey: string; variantName: string; shopifyVariantId: string }[] = json.products
+      const shopifyVariants: { variantKey: string; variantName: string; shopifyVariantId: string; shopifyProductId: string }[] = json.products
 
       setLocalVariants(prev => {
         // For each Shopify variant: keep existing line items if already configured, else add blank
@@ -294,9 +305,9 @@ export default function Dashboard() {
           )
           if (existing) {
             // Keep costs, just refresh name and IDs so they match Shopify exactly
-            return { ...existing, variantName: sv.variantName, variantKey: sv.variantKey, shopifyVariantId: sv.shopifyVariantId }
+            return { ...existing, variantName: sv.variantName, variantKey: sv.variantKey, shopifyVariantId: sv.shopifyVariantId, shopifyProductId: sv.shopifyProductId }
           }
-          return { variantKey: sv.variantKey, variantName: sv.variantName, shopifyVariantId: sv.shopifyVariantId, lineItems: [], totalCost: 0 }
+          return { variantKey: sv.variantKey, variantName: sv.variantName, shopifyVariantId: sv.shopifyVariantId, shopifyProductId: sv.shopifyProductId, lineItems: [], totalCost: 0 }
         })
         // Preserve any manually added variants not found in Shopify
         const manual = prev.filter(
@@ -480,7 +491,15 @@ export default function Dashboard() {
         {/* Row 1 — P&L Waterfall */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { label: "COGS", value: fmt(m?.cogs || 0), pct: null, cls: "text-red-600", hint: null },
+            {
+              label: "COGS",
+              value: fmt(m?.cogs || 0),
+              pct: null,
+              cls: "text-red-600",
+              hint: m && m.amazonCOGS > 0
+                ? `Shopify ${fmt(m.shopifyCOGS)} + Amazon ~${fmt(m.amazonCOGS)} est.`
+                : null,
+            },
             {
               label: "Gross Profit",
               value: fmt(m?.grossProfit || 0),
@@ -703,6 +722,16 @@ export default function Dashboard() {
                       <td className="py-3 px-2 text-right font-medium">${cb.totalCOGS.toFixed(2)}</td>
                     </tr>
                   ))}
+                  {m && m.amazonCOGS > 0 && (
+                    <tr className="border-b border-zinc-100 bg-amber-50/50">
+                      <td className="py-3 px-2 text-xs text-zinc-500 italic">
+                        Amazon (estimated at Shopify COGS rate)
+                      </td>
+                      <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
+                      <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
+                      <td className="py-3 px-2 text-right font-medium text-zinc-500">~{fmt(m.amazonCOGS)}</td>
+                    </tr>
+                  )}
                   {(cogsBreakdown.length === 0 || variants.length === 0) && (
                     <tr>
                       <td colSpan={4} className="py-8 text-center text-zinc-400 text-sm">

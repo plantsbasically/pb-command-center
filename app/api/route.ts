@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
       shopifyAOV: shopifyData.aov,
       shopifyNewCustomers: shopifyData.newCustomers,
       shopifyTotalCustomers: shopifyData.totalCustomers,
-      cogsByVariantSold: totalCOGS,
+      shopifyCogsByVariantSold: totalCOGS,
       adSpend: twData.adSpend,
       twLtv: twData.ltv,
       fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),

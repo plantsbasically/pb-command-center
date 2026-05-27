@@ -123,3 +123,51 @@ export function processTWData(rawData: any): TWProcessedData {
 
   return { adSpend, channelSpend: ch, ltv, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
 }
+
+export interface TWCOGSPushResult {
+  pushed: number
+  skipped: number   // variants missing shopifyProductId or shopifyVariantId
+  errors: string[]
+}
+
+/**
+ * Pushes COGS costs from pb-command-center to Triple Whale's Enrich Products API.
+ * TW uses these costs to calculate Gross Profit and Contribution Margin in its own dashboards.
+ * Variants without a shopifyProductId are skipped (manually added variants not synced from Shopify).
+ */
+export async function pushCOGSToTW(
+  variants: { shopifyProductId: string; shopifyVariantId: string; totalCost: number }[]
+): Promise<TWCOGSPushResult> {
+  if (!API_KEY) {
+    return { pushed: 0, skipped: variants.length, errors: ["Missing TRIPLEWHALE_API_KEY"] }
+  }
+
+  const eligible = variants.filter(v => v.shopifyProductId && v.shopifyVariantId)
+  const skipped = variants.length - eligible.length
+
+  const results = await Promise.allSettled(
+    eligible.map((v) =>
+      fetch(`${BASE_URL}/api/v2/data-in/products-enrichment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({
+          shop: SHOPIFY_DOMAIN,
+          product_id: v.shopifyProductId,
+          variant_id: v.shopifyVariantId,
+          variant_cost: v.totalCost,
+        }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text().catch(() => "")
+          throw new Error(`TW ${res.status}: ${body}`)
+        }
+      })
+    )
+  )
+
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+    .map((r) => (r.reason as Error)?.message || "Unknown error")
+
+  return { pushed: eligible.length - errors.length, skipped, errors }
+}
