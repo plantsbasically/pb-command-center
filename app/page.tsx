@@ -217,33 +217,29 @@ export default function Dashboard() {
   }
 
   const updateVariantLineItem = (variantIdx: number, lineIdx: number, field: string, value: any) => {
-    const newVariants = [...localVariants]
-    newVariants[variantIdx].lineItems[lineIdx] = {
-      ...newVariants[variantIdx].lineItems[lineIdx],
-      [field]: field === "name" ? value : parseFloat(value) || 0,
-    }
-    // Recompute totalCost
-    newVariants[variantIdx].totalCost = newVariants[variantIdx].lineItems.reduce(
-      (s, i) => s + i.cost * i.quantity,
-      0
-    )
-    setLocalVariants(newVariants)
+    setLocalVariants(prev => prev.map((v, i) => {
+      if (i !== variantIdx) return v
+      const newLineItems = v.lineItems.map((item, li) =>
+        li !== lineIdx ? item : { ...item, [field]: field === "name" ? value : parseFloat(value) || 0 }
+      )
+      return { ...v, lineItems: newLineItems, totalCost: newLineItems.reduce((s, it) => s + it.cost * it.quantity, 0) }
+    }))
   }
 
   const addVariantLineItem = (variantIdx: number) => {
-    const newVariants = [...localVariants]
-    newVariants[variantIdx].lineItems.push({ name: "New Item", cost: 0, quantity: 1 })
-    setLocalVariants(newVariants)
+    setLocalVariants(prev => prev.map((v, i) => {
+      if (i !== variantIdx) return v
+      const newLineItems = [...v.lineItems, { name: "New Item", cost: 0, quantity: 1 }]
+      return { ...v, lineItems: newLineItems }
+    }))
   }
 
   const removeVariantLineItem = (variantIdx: number, lineIdx: number) => {
-    const newVariants = [...localVariants]
-    newVariants[variantIdx].lineItems.splice(lineIdx, 1)
-    newVariants[variantIdx].totalCost = newVariants[variantIdx].lineItems.reduce(
-      (s, i) => s + i.cost * i.quantity,
-      0
-    )
-    setLocalVariants(newVariants)
+    setLocalVariants(prev => prev.map((v, i) => {
+      if (i !== variantIdx) return v
+      const newLineItems = v.lineItems.filter((_, li) => li !== lineIdx)
+      return { ...v, lineItems: newLineItems, totalCost: newLineItems.reduce((s, it) => s + it.cost * it.quantity, 0) }
+    }))
   }
 
   const addVariant = () => {
@@ -534,24 +530,22 @@ export default function Dashboard() {
           {editingCOGS ? (
             <div className="space-y-4">
               {localVariants.map((variant, vi) => (
-                <div key={variant.variantKey + vi} className="border border-zinc-200 rounded-lg p-4">
+                <div key={vi} className="border border-zinc-200 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex gap-2 items-center">
                       <input
                         value={variant.variantKey}
                         onChange={(e) => {
-                          const nv = [...localVariants]
-                          nv[vi].variantKey = e.target.value
-                          setLocalVariants(nv)
+                          const val = e.target.value
+                          setLocalVariants(prev => prev.map((v, i) => i !== vi ? v : { ...v, variantKey: val }))
                         }}
                         className="font-mono text-sm w-32"
                       />
                       <input
                         value={variant.variantName}
                         onChange={(e) => {
-                          const nv = [...localVariants]
-                          nv[vi].variantName = e.target.value
-                          setLocalVariants(nv)
+                          const val = e.target.value
+                          setLocalVariants(prev => prev.map((v, i) => i !== vi ? v : { ...v, variantName: val }))
                         }}
                         className="text-sm flex-1"
                       />
