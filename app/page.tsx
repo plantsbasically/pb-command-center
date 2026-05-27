@@ -619,7 +619,7 @@ export default function Dashboard() {
               value: fmt(m?.netProfit || 0),
               pct: fmtPct(m?.netMarginPct || 0),
               cls: m && m.netProfit >= 0 ? "positive" : "negative",
-              hint: null,
+              hint: "after everything — did the business actually make money this period?",
             },
             {
               label: "LTV:CAC",
