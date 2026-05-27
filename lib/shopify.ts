@@ -96,18 +96,26 @@ interface ShopifyCustomer {
   last_name: string
 }
 
+interface ShopifyRefundLineItem {
+  subtotal: string  // refunded item amount after discounts, before tax
+}
+
+interface ShopifyRefund {
+  refund_line_items: ShopifyRefundLineItem[]
+}
+
 interface ShopifyOrder {
   id: string
   name: string
   financial_status: string
   total_price: string
   subtotal_price: string
-  current_subtotal_price: string  // live net after partial refunds — use this for revenue
   total_discounts: string
   order_number: number
   created_at: string
   processed_at: string
   line_items: ShopifyOrderLineItem[]
+  refunds: ShopifyRefund[]   // product refund amounts — subtract from subtotal_price
   customer: ShopifyCustomer | null
   tags: string
   total_shipping_price_set: { shop_money: { amount: string } } | null
@@ -174,12 +182,21 @@ export async function processShopifyData(
   let shippingCollected = 0
   const variantUnitsSold: Record<string, number> = {}
 
-  // Exclude only voided/fully-refunded orders; count paid, authorized, partially_refunded, etc.
+  // Exclude voided and fully-refunded orders entirely
   const EXCLUDED_STATUSES = new Set(["voided", "refunded"])
 
   for (const order of orders) {
     if (EXCLUDED_STATUSES.has(order.financial_status)) continue
-    revenue += parseFloat(order.current_subtotal_price ?? order.subtotal_price) || 0
+
+    // Start with subtotal_price (gross sales minus discounts, no tax, no shipping)
+    // then subtract every refunded line item amount to get true net product revenue
+    let orderRevenue = parseFloat(order.subtotal_price) || 0
+    for (const refund of order.refunds || []) {
+      for (const rli of refund.refund_line_items || []) {
+        orderRevenue -= parseFloat(rli.subtotal) || 0
+      }
+    }
+    revenue += orderRevenue
     shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
 
