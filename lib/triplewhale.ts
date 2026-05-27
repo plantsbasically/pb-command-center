@@ -40,6 +40,7 @@ export interface ChannelSpend {
 export interface TWProcessedData {
   adSpend: number
   channelSpend: ChannelSpend
+  ltv: number             // uniqueCustomerSales — all-time avg lifetime value per customer
   attributedRevenue: number
   blendedCac: number
   blendedRoas: number
@@ -56,12 +57,12 @@ function metricVal(m: any): number {
 
 export function processTWData(rawData: any): TWProcessedData {
   const emptyChannelSpend: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
-  const empty = { adSpend: 0, channelSpend: emptyChannelSpend, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
+  const empty = { adSpend: 0, channelSpend: emptyChannelSpend, ltv: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
 
   if (!rawData) return { ...empty, error: "No response" }
   if (rawData.error) return { ...empty, error: rawData.error }
 
-  let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
+  let adSpend = 0, ltv = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
   let amazonRevenue = 0, amazonOrders = 0, amazonFees = 0
   const ch: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
 
@@ -71,8 +72,9 @@ export function processTWData(rawData: any): TWProcessedData {
       const id = String(m.id || "").toLowerCase()
       const val = metricVal(m)
 
-      // Blended total
+      // Blended total + LTV
       if (id === "blendedads" && val > 0 && adSpend === 0) adSpend = val
+      if (id === "uniquecustomersales" && val > 0) ltv = val
 
       // Channel spend
       if (id === "facebookads" && val > 0) ch.facebook = val
@@ -119,5 +121,5 @@ export function processTWData(rawData: any): TWProcessedData {
   if (adSpend === 0 && rawData.totalAdSpend) adSpend = Number(rawData.totalAdSpend) || 0
   if (attributedRevenue === 0 && rawData.revenue) attributedRevenue = Number(rawData.revenue) || 0
 
-  return { adSpend, channelSpend: ch, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
+  return { adSpend, channelSpend: ch, ltv, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
 }

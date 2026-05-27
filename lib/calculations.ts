@@ -47,6 +47,7 @@ export function computeMetrics(params: {
   shopifyTotalCustomers: number
   cogsByVariantSold: number
   adSpend: number
+  twLtv: number           // TW all-time avg LTV — not date-range dependent
   fixedCostsMonthly: number[]
   dateRange: { start: string; end: string }
 }): MetricsResult {
@@ -59,6 +60,7 @@ export function computeMetrics(params: {
     shopifyTotalCustomers,
     cogsByVariantSold,
     adSpend,
+    twLtv,
     fixedCostsMonthly,
     dateRange,
   } = params
@@ -87,7 +89,7 @@ export function computeMetrics(params: {
   const totalCustomers = shopifyTotalCustomers
 
   const cac = newCustomers > 0 ? adSpend / newCustomers : 0
-  const ltv = totalCustomers > 0 ? revenue / totalCustomers : 0
+  const ltv = twLtv  // TW all-time avg: not influenced by selected date range
   const ltvCacRatio = cac > 0 ? ltv / cac : 0
 
   return {

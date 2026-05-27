@@ -473,13 +473,14 @@ export default function Dashboard() {
         {/* Row 2 — Acquisition & Customer Metrics */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "CAC", value: m ? fmt(m.cac) : "—" },
-            { label: "LTV", value: m ? fmt(m.ltv) : "—" },
-            { label: "AOV", value: m ? fmt(m.aov) : "—" },
+            { label: "CAC", value: m ? fmt(m.cac) : "—", hint: null },
+            { label: "LTV", value: m ? fmt(m.ltv) : "—", hint: "Triple Whale all-time avg — historical lifetime spend per customer, not based on selected date range" },
+            { label: "AOV", value: m ? fmt(m.aov) : "—", hint: null },
           ].map((metric) => (
             <div key={metric.label} className="card">
               <div className="metric-big">{metric.value}</div>
               <div className="metric-label mt-1">{metric.label}</div>
+              {metric.hint && <div className="text-xs text-zinc-400 mt-1 leading-snug">{metric.hint}</div>}
             </div>
           ))}
         </div>

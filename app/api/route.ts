@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
       shopifyTotalCustomers: shopifyData.totalCustomers,
       cogsByVariantSold: totalCOGS,
       adSpend: twData.adSpend,
+      twLtv: twData.ltv,
       fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
       dateRange: { start: dateStart, end: dateEnd },
     })
