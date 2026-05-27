@@ -176,7 +176,21 @@ export default function Dashboard() {
       })
       const json = await res.json()
       if (json.ok) {
-        setVariants(json.data.variants)
+        const updatedVariants = json.data.variants
+        setVariants(updatedVariants)
+        // Immediately update the view-mode breakdown so names/costs show instantly
+        // without waiting 20-30s for fetchData(true) to return
+        setCogsBreakdown(prev => updatedVariants.map((v: COGSVariant) => {
+          const existing = prev.find(cb => cb.variantKey === v.variantKey)
+          const unitsSold = existing?.unitsSold ?? 0
+          return {
+            variantKey: v.variantKey,
+            variantName: v.variantName,
+            totalCost: v.totalCost,
+            unitsSold,
+            totalCOGS: unitsSold * v.totalCost,
+          }
+        }))
         setEditingCOGS(false)
         fetchData(true)
       } else {
