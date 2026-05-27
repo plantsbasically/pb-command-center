@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBasicAuthHeader, authHeaders } from "@/lib/auth"
-import { readJSON, writeJSON } from "@/lib/filestore"
-import { computeCOGSTotal } from "@/lib/calculations"
+import { getCogsVariants, saveCogsVariants, getFixedCosts, saveFixedCosts } from "@/lib/db"
 
 function checkAuth(req: NextRequest) {
   const auth = getBasicAuthHeader(req.headers.get("authorization"))
@@ -24,14 +23,15 @@ export async function PUT(req: NextRequest) {
         ...v,
         totalCost: v.totalCost ?? v.lineItems.reduce((s: number, i: any) => s + i.cost * i.quantity, 0),
       }))
-      writeJSON("cogs.json", { variants })
-      const updated = readJSON("cogs.json")
-      return NextResponse.json({ ok: true, data: updated })
+      await saveCogsVariants(variants)
+      const updated = await getCogsVariants()
+      return NextResponse.json({ ok: true, data: { variants: updated } })
     }
 
     if (action === "updateFixedCosts") {
-      writeJSON("fixedcosts.json", { lineItems: data.lineItems })
-      return NextResponse.json({ ok: true, data: data.lineItems })
+      await saveFixedCosts(data.lineItems)
+      const updated = await getFixedCosts()
+      return NextResponse.json({ ok: true, data: updated })
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 })

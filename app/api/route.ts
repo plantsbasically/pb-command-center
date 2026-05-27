@@ -32,29 +32,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data)
     }
 
-    // Import data & calculations
-    const { readJSON } = await import("@/lib/filestore")
     const { computeMetrics } = await import("@/lib/calculations")
     const { processShopifyData } = await import("@/lib/shopify")
     const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
+    const { getCogsVariants, getFixedCosts } = await import("@/lib/db")
 
-    // Pull COGS data
-    const cogsData = (readJSON("cogs.json") as { variants: any[] }) || { variants: [] }
-    const fixedCostsData = (readJSON("fixedcosts.json") as { lineItems: any[] }) || { lineItems: [] }
-
-    // Compute COGS per variant
-    const cogsMap = new Map<string, number>()
-    for (const v of cogsData.variants) {
-      cogsMap.set(v.variantKey, v.totalCost || 0)
-    }
-
-    // Fetch Shopify and Triple Whale in parallel
-    const [shopifyData, twRaw] = await Promise.all([
+    // All four fetches run in parallel
+    const [cogsVariants, fixedCostItems, shopifyData, twRaw] = await Promise.all([
+      getCogsVariants(),
+      getFixedCosts(),
       processShopifyData(dateStart, dateEnd),
       fetchTWData(dateStart, dateEnd),
     ])
 
-    // Calculate COGS from units sold
+    const cogsMap = new Map<string, number>()
+    for (const v of cogsVariants) {
+      cogsMap.set(v.variantKey, v.totalCost || 0)
+    }
+
     let totalCOGS = 0
     for (const [variantKey, units] of Object.entries(shopifyData.variantUnitsSold)) {
       const unitCOGS = cogsMap.get(variantKey) || cogsMap.get(variantKey.replace(/-\d+$/, "")) || 0
@@ -63,7 +58,6 @@ export async function GET(req: NextRequest) {
 
     const twData = processTWData(twRaw)
 
-    // Compute metrics
     const metrics = computeMetrics({
       shopifyRevenue: shopifyData.revenue,
       shopifyOrdersCount: shopifyData.ordersCount,
@@ -72,12 +66,11 @@ export async function GET(req: NextRequest) {
       shopifyTotalCustomers: shopifyData.totalCustomers,
       cogsByVariantSold: totalCOGS,
       adSpend: twData.adSpend,
-      fixedCostsMonthly: fixedCostsData.lineItems.map((lc) => lc.monthlyCost),
+      fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
       dateRange: { start: dateStart, end: dateEnd },
     })
 
-    // Include COGS breakdown
-    const cogsBreakdown = cogsData.variants.map((v) => ({
+    const cogsBreakdown = cogsVariants.map((v) => ({
       variantKey: v.variantKey,
       variantName: v.variantName,
       totalCost: v.totalCost,
@@ -88,8 +81,8 @@ export async function GET(req: NextRequest) {
     const responseData = {
       metrics,
       cogsBreakdown,
-      variants: cogsData.variants,
-      fixedCosts: fixedCostsData.lineItems,
+      variants: cogsVariants,
+      fixedCosts: fixedCostItems,
       twData,
     }
 
