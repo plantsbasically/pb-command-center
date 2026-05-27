@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
 
     const metrics = computeMetrics({
       shopifyRevenue: shopifyData.revenue,
+      amazonRevenue: twData.amazonRevenue,
       shopifyOrdersCount: shopifyData.ordersCount,
       shopifyAOV: shopifyData.aov,
       shopifyNewCustomers: shopifyData.newCustomers,

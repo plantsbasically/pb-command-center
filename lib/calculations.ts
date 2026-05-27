@@ -13,7 +13,9 @@ export interface FixedCostLineItem {
 
 export interface MetricsResult {
   dateRange: { start: string; end: string }
-  revenue: number
+  revenue: number         // blended total (Shopify + Amazon)
+  shopifyRevenue: number
+  amazonRevenue: number
   cogs: number
   grossProfit: number
   grossMarginPct: number
@@ -38,6 +40,7 @@ export function computeCOGSTotal(variant: COGSVariant): number {
 
 export function computeMetrics(params: {
   shopifyRevenue: number
+  amazonRevenue: number
   shopifyOrdersCount: number
   shopifyAOV: number
   shopifyNewCustomers: number
@@ -49,6 +52,7 @@ export function computeMetrics(params: {
 }): MetricsResult {
   const {
     shopifyRevenue,
+    amazonRevenue,
     shopifyOrdersCount,
     shopifyAOV,
     shopifyNewCustomers,
@@ -59,7 +63,7 @@ export function computeMetrics(params: {
     dateRange,
   } = params
 
-  const revenue = shopifyRevenue
+  const revenue = shopifyRevenue + amazonRevenue
   const cogs = cogsByVariantSold
   const grossProfit = revenue - cogs
   const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0
@@ -89,6 +93,8 @@ export function computeMetrics(params: {
   return {
     dateRange,
     revenue,
+    shopifyRevenue,
+    amazonRevenue,
     cogs,
     grossProfit,
     grossMarginPct,

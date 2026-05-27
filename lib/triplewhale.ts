@@ -32,6 +32,9 @@ export interface TWProcessedData {
   attributedRevenue: number
   blendedCac: number
   blendedRoas: number
+  amazonRevenue: number   // amazonProductItemPrice — gross product sales on Amazon
+  amazonOrders: number
+  amazonFees: number      // Amazon referral + FBA fees
   error?: string
   raw?: any
 }
@@ -41,56 +44,47 @@ function metricVal(m: any): number {
 }
 
 export function processTWData(rawData: any): TWProcessedData {
-  if (!rawData) {
-    return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: "No response" }
-  }
+  const empty = { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
 
-  if (rawData.error) {
-    return { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, error: rawData.error }
-  }
+  if (!rawData) return { ...empty, error: "No response" }
+  if (rawData.error) return { ...empty, error: rawData.error }
 
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
+  let amazonRevenue = 0, amazonOrders = 0, amazonFees = 0
 
   if (Array.isArray(rawData?.metrics)) {
-    // Pass 1: target blendedAds by ID — avoids being overwritten by channel-specific spend metrics
+    // Pass 1: target exact IDs first — prevents overwriting by similar-named metrics
     for (const m of rawData.metrics) {
-      if (String(m.id || "").toLowerCase() === "blendedads") {
-        const val = metricVal(m)
-        if (val > 0) { adSpend = val; break }
-      }
+      const id = String(m.id || "").toLowerCase()
+      const val = metricVal(m)
+
+      if (id === "blendedads" && val > 0 && adSpend === 0) adSpend = val
+      if (id === "amazonproductitemprice" && val > 0) amazonRevenue = val
+      if (id === "amazonorders" && val > 0) amazonOrders = val
+      if (id === "amazonfees" && val > 0) amazonFees = val
     }
 
-    // Pass 2: extract all other metrics (first-match wins to avoid bad overwrites)
+    // Pass 2: broader matching for anything not caught above (first-match wins)
     for (const m of rawData.metrics) {
       const title = String(m.title || m.name || "").toLowerCase().trim()
       const id = String(m.id || "").toLowerCase()
       const mid = String(m.metricId || "").toLowerCase()
       const val = metricVal(m)
 
-      // Only pick up ad spend here if blendedAds wasn't found above
-      if (adSpend === 0) {
-        const isAdSpend =
-          title === "blended ad spend" ||
-          title === "total ad spend" ||
-          mid.includes("blended") ||
-          id === "totaladspend"
-        if (isAdSpend && val > 0) adSpend = val
+      if (adSpend === 0 && val > 0) {
+        const isAdSpend = title === "blended ad spend" || title === "total ad spend" || mid.includes("blended") || id === "totaladspend"
+        if (isAdSpend) adSpend = val
       }
-
       if (attributedRevenue === 0 && val > 0) {
         if (title.includes("revenue") || mid.includes("revenue") || id.includes("revenue")) {
           attributedRevenue = val
         }
       }
       if (blendedCac === 0 && val > 0) {
-        if (title.includes("cac") || mid.includes("cac") || id.includes("cac")) {
-          blendedCac = val
-        }
+        if (title.includes("cac") || mid.includes("cac") || id.includes("cac")) blendedCac = val
       }
       if (blendedRoas === 0 && val > 0) {
-        if (title.includes("roas") || mid.includes("roas") || id.includes("roas")) {
-          blendedRoas = val
-        }
+        if (title.includes("roas") || mid.includes("roas") || id.includes("roas")) blendedRoas = val
       }
     }
   }
@@ -100,5 +94,5 @@ export function processTWData(rawData: any): TWProcessedData {
   if (adSpend === 0 && rawData.totalAdSpend) adSpend = Number(rawData.totalAdSpend) || 0
   if (attributedRevenue === 0 && rawData.revenue) attributedRevenue = Number(rawData.revenue) || 0
 
-  return { adSpend, attributedRevenue, blendedCac, blendedRoas, raw: rawData }
+  return { adSpend, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
 }

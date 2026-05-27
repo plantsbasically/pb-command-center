@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from "react"
 
 interface Metrics {
   revenue: number
+  shopifyRevenue: number
+  amazonRevenue: number
   cogs: number
   grossProfit: number
   grossMarginPct: number
@@ -351,10 +353,36 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Revenue by Channel */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            {
+              label: "Total Blended Revenue",
+              value: fmt(m?.revenue || 0),
+              sub: null,
+            },
+            {
+              label: "Shopify Revenue",
+              value: fmt(m?.shopifyRevenue || 0),
+              sub: m && m.revenue > 0 ? fmtPct((m.shopifyRevenue / m.revenue) * 100) + " of total" : null,
+            },
+            {
+              label: "Amazon Revenue",
+              value: fmt(m?.amazonRevenue || 0),
+              sub: m && m.revenue > 0 ? fmtPct((m.amazonRevenue / m.revenue) * 100) + " of total" : null,
+            },
+          ].map((card) => (
+            <div key={card.label} className="card">
+              <div className="metric-big">{card.value}</div>
+              {card.sub && <div className="text-xs text-zinc-400 mt-0.5">{card.sub}</div>}
+              <div className="metric-label mt-1">{card.label}</div>
+            </div>
+          ))}
+        </div>
+
         {/* Row 1 — P&L Waterfall */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { label: "Revenue", value: fmt(m?.revenue || 0), pct: null, cls: "", hint: null },
             { label: "COGS", value: fmt(m?.cogs || 0), pct: null, cls: "text-red-600", hint: null },
             {
               label: "Gross Profit",
