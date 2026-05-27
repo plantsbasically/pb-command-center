@@ -102,6 +102,7 @@ interface ShopifyOrder {
   financial_status: string
   total_price: string
   subtotal_price: string
+  current_subtotal_price: string  // live net after partial refunds — use this for revenue
   total_discounts: string
   order_number: number
   created_at: string
@@ -178,7 +179,7 @@ export async function processShopifyData(
 
   for (const order of orders) {
     if (EXCLUDED_STATUSES.has(order.financial_status)) continue
-    revenue += parseFloat(order.subtotal_price) || 0
+    revenue += parseFloat(order.current_subtotal_price ?? order.subtotal_price) || 0
     shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
 
