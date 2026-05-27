@@ -192,18 +192,26 @@ export default function Dashboard() {
   const saveFixedCosts = async () => {
     setLoading(true)
     try {
+      // Auto-include any item typed in the "new" row but not yet confirmed with +
+      const pending = newFixedName.trim()
+        ? [{ name: newFixedName.trim(), monthlyCost: parseFloat(newFixedCost) || 0 }]
+        : []
+      const itemsToSave = [...localFixed, ...pending]
+
       const res = await fetch("/api/admin", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "updateFixedCosts",
-          data: { lineItems: localFixed },
+          data: { lineItems: itemsToSave },
         }),
       })
       const json = await res.json()
       if (json.ok) {
         setFixedCosts(json.data)
         setEditingFixed(false)
+        setNewFixedName("")
+        setNewFixedCost("")
         fetchData(true)
       } else {
         setError(json.error || "Failed to save fixed costs")
@@ -548,7 +556,16 @@ export default function Dashboard() {
                         className="text-sm flex-1"
                       />
                     </div>
-                    <div className="text-sm font-semibold positive">${variant.totalCost.toFixed(2)} / unit</div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm font-semibold positive">${variant.totalCost.toFixed(2)} / unit</div>
+                      <button
+                        type="button"
+                        onClick={() => setLocalVariants(prev => prev.filter((_, i) => i !== vi))}
+                        className="text-xs text-zinc-400 hover:text-red-500 border border-zinc-200 hover:border-red-300 rounded px-2 py-0.5"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                   <table className="w-full text-sm">
                     <thead>
@@ -663,9 +680,8 @@ export default function Dashboard() {
                   <input
                     value={fc.name}
                     onChange={(e) => {
-                      const nl = [...localFixed]
-                      nl[i].name = e.target.value
-                      setLocalFixed(nl)
+                      const val = e.target.value
+                      setLocalFixed(prev => prev.map((item, idx) => idx !== i ? item : { ...item, name: val }))
                     }}
                     className="flex-1"
                   />
@@ -675,9 +691,8 @@ export default function Dashboard() {
                     step="0.01"
                     value={fc.monthlyCost}
                     onChange={(e) => {
-                      const nl = [...localFixed]
-                      nl[i].monthlyCost = parseFloat(e.target.value) || 0
-                      setLocalFixed(nl)
+                      const val = parseFloat(e.target.value) || 0
+                      setLocalFixed(prev => prev.map((item, idx) => idx !== i ? item : { ...item, monthlyCost: val }))
                     }}
                     className="w-28 text-right"
                   />
