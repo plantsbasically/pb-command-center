@@ -131,6 +131,7 @@ export default function Dashboard() {
   const [localFixed, setLocalFixed] = useState<FixedCostLine[]>([])
   const [newFixedName, setNewFixedName] = useState("")
   const [newFixedCost, setNewFixedCost] = useState("")
+  const [syncing, setSyncing] = useState(false)
   const [showAllDatePresets, setShowAllDatePresets] = useState(false)
 
   const fetchData = useCallback(async (bust = false) => {
@@ -274,6 +275,40 @@ export default function Dashboard() {
         totalCost: 0,
       },
     ])
+  }
+
+  const syncFromShopify = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch("/api/admin")
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error || "Sync failed")
+
+      const shopifyVariants: { variantKey: string; variantName: string; shopifyVariantId: string }[] = json.products
+
+      setLocalVariants(prev => {
+        // For each Shopify variant: keep existing line items if already configured, else add blank
+        const merged = shopifyVariants.map(sv => {
+          const existing = prev.find(
+            lv => lv.variantKey === sv.variantKey || lv.shopifyVariantId === sv.shopifyVariantId
+          )
+          if (existing) {
+            // Keep costs, just refresh name and IDs so they match Shopify exactly
+            return { ...existing, variantName: sv.variantName, variantKey: sv.variantKey, shopifyVariantId: sv.shopifyVariantId }
+          }
+          return { variantKey: sv.variantKey, variantName: sv.variantName, shopifyVariantId: sv.shopifyVariantId, lineItems: [], totalCost: 0 }
+        })
+        // Preserve any manually added variants not found in Shopify
+        const manual = prev.filter(
+          lv => !shopifyVariants.find(sv => sv.variantKey === lv.variantKey || sv.shopifyVariantId === lv.shopifyVariantId)
+        )
+        return [...merged, ...manual]
+      })
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const addFixedCost = () => {
@@ -542,7 +577,15 @@ export default function Dashboard() {
                 Edit COGS
               </button>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={syncFromShopify}
+                  disabled={syncing}
+                  className="btn-outline text-xs disabled:opacity-40"
+                >
+                  {syncing ? "Syncing..." : "↻ Sync from Shopify"}
+                </button>
                 <button type="button" onClick={saveCOGS} className="btn-primary">Save</button>
                 <button type="button" onClick={() => setEditingCOGS(false)} className="btn-outline">Cancel</button>
               </div>

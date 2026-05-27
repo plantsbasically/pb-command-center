@@ -10,6 +10,20 @@ function checkAuth(req: NextRequest) {
   return null
 }
 
+// GET — fetch all active Shopify product variants for COGS sync
+export async function GET(req: NextRequest) {
+  const authError = checkAuth(req)
+  if (authError) return authError
+
+  try {
+    const { fetchProducts } = await import("@/lib/shopify")
+    const products = await fetchProducts()
+    return NextResponse.json({ ok: true, products })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
+
 export async function PUT(req: NextRequest) {
   const authError = checkAuth(req)
   if (authError) return authError

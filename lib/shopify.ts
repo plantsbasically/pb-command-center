@@ -24,6 +24,50 @@ function parseNextLink(linkHeader: string | null): string | null {
   return match ? match[1] : null
 }
 
+export interface ShopifyVariantSummary {
+  variantKey: string        // SKU (preferred) or Shopify variant ID — matches order line items
+  variantName: string       // "Product Title" or "Product Title - Variant Title"
+  shopifyVariantId: string
+}
+
+export async function fetchProducts(): Promise<ShopifyVariantSummary[]> {
+  const results: ShopifyVariantSummary[] = []
+
+  const firstRes = await shopifyFetch("products.json", {
+    status: "active",
+    limit: "250",
+    fields: "id,title,variants",
+  })
+  const firstData: any = await firstRes.json()
+
+  function extractVariants(products: any[]) {
+    for (const product of products) {
+      for (const variant of product.variants || []) {
+        const variantKey = variant.sku?.trim() || String(variant.id)
+        const variantTitle = variant.title === "Default Title" ? "" : variant.title
+        const variantName = variantTitle ? `${product.title} - ${variantTitle}` : product.title
+        results.push({ variantKey, variantName, shopifyVariantId: String(variant.id) })
+      }
+    }
+  }
+
+  extractVariants(firstData.products || [])
+
+  let nextUrl = parseNextLink(firstRes.headers.get("link"))
+  while (nextUrl) {
+    const res = await fetch(nextUrl, {
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": ACCESS_TOKEN },
+    })
+    if (!res.ok) break
+    const data: any = await res.json()
+    if (!data.products?.length) break
+    extractVariants(data.products)
+    nextUrl = parseNextLink(res.headers.get("link"))
+  }
+
+  return results
+}
+
 interface ShopifyOrderLineItem {
   id: string
   product_id: string
