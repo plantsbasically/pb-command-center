@@ -35,7 +35,6 @@ export interface ChannelSpend {
   snapchat: number
   pinterest: number
   amazonAds: number   // Amazon Ads spend (not Amazon revenue)
-  custom: number
 }
 
 export interface TWProcessedData {
@@ -56,7 +55,7 @@ function metricVal(m: any): number {
 }
 
 export function processTWData(rawData: any): TWProcessedData {
-  const emptyChannelSpend: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0, custom: 0 }
+  const emptyChannelSpend: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
   const empty = { adSpend: 0, channelSpend: emptyChannelSpend, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
 
   if (!rawData) return { ...empty, error: "No response" }
@@ -64,7 +63,7 @@ export function processTWData(rawData: any): TWProcessedData {
 
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
   let amazonRevenue = 0, amazonOrders = 0, amazonFees = 0
-  const ch: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0, custom: 0 }
+  const ch: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
 
   if (Array.isArray(rawData?.metrics)) {
     // Pass 1: exact ID match — no ambiguity, first-write wins per field
@@ -83,7 +82,6 @@ export function processTWData(rawData: any): TWProcessedData {
       if (id === "snapchatads" && val > 0) ch.snapchat = val
       if (id === "pinterestads" && val > 0) ch.pinterest = val
       if (id === "amazonads" && val > 0) ch.amazonAds = val
-      if (id === "totalcustomadspends" && val > 0) ch.custom = val
 
       // Amazon revenue metrics
       if (id === "amazonproductitemprice" && val > 0) amazonRevenue = val

@@ -52,7 +52,6 @@ interface ChannelSpend {
   snapchat: number
   pinterest: number
   amazonAds: number
-  custom: number
 }
 
 interface TWData {
@@ -400,7 +399,6 @@ export default function Dashboard() {
             { label: "Snapchat", value: cs.snapchat },
             { label: "Pinterest", value: cs.pinterest },
             { label: "Amazon Ads", value: cs.amazonAds },
-            { label: "Custom", value: cs.custom },
           ].filter((c) => c.value > 0) : []
 
           return (
@@ -517,13 +515,13 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-base">COGS by Variant</h2>
             {!editingCOGS ? (
-              <button onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
+              <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
                 Edit COGS
               </button>
             ) : (
               <div className="flex gap-2">
-                <button onClick={saveCOGS} className="btn-primary">Save</button>
-                <button onClick={() => setEditingCOGS(false)} className="btn-outline">Cancel</button>
+                <button type="button" onClick={saveCOGS} className="btn-primary">Save</button>
+                <button type="button" onClick={() => setEditingCOGS(false)} className="btn-outline">Cancel</button>
               </div>
             )}
           </div>
@@ -593,13 +591,14 @@ export default function Dashboard() {
                           </td>
                           <td className="py-1.5 text-right font-medium">${(item.cost * item.quantity).toFixed(2)}</td>
                           <td className="py-1.5 text-right">
-                            <button onClick={() => removeVariantLineItem(vi, li)} className="text-zinc-400 hover:text-red-500">×</button>
+                            <button type="button" onClick={() => removeVariantLineItem(vi, li)} className="text-zinc-400 hover:text-red-500 px-1">×</button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   <button
+                    type="button"
                     onClick={() => addVariantLineItem(vi)}
                     className="mt-2 text-xs text-zinc-500 hover:text-zinc-900 flex items-center gap-1"
                   >
@@ -607,7 +606,7 @@ export default function Dashboard() {
                   </button>
                 </div>
               ))}
-              <button onClick={addVariant} className="btn-outline text-xs">+ Add Variant</button>
+              <button type="button" onClick={addVariant} className="btn-outline text-xs">+ Add Variant</button>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -647,13 +646,13 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-base">Fixed Operating Costs</h2>
             {!editingFixed ? (
-              <button onClick={() => { setLocalFixed(JSON.parse(JSON.stringify(fixedCosts))); setEditingFixed(true); }} className="btn-primary">
+              <button type="button" onClick={() => { setLocalFixed(JSON.parse(JSON.stringify(fixedCosts))); setEditingFixed(true); }} className="btn-primary">
                 Edit Costs
               </button>
             ) : (
               <div className="flex gap-2">
-                <button onClick={saveFixedCosts} className="btn-primary">Save</button>
-                <button onClick={() => setEditingFixed(false)} className="btn-outline">Cancel</button>
+                <button type="button" onClick={saveFixedCosts} className="btn-primary">Save</button>
+                <button type="button" onClick={() => setEditingFixed(false)} className="btn-outline">Cancel</button>
               </div>
             )}
           </div>
@@ -682,7 +681,7 @@ export default function Dashboard() {
                     }}
                     className="w-28 text-right"
                   />
-                  <button onClick={() => removeFixedCost(i)} className="text-zinc-400 hover:text-red-500">×</button>
+                  <button type="button" onClick={() => removeFixedCost(i)} className="text-zinc-400 hover:text-red-500 px-1">×</button>
                 </div>
               ))}
               <div className="flex items-center gap-3 pt-2 border-t border-zinc-100">
@@ -701,7 +700,7 @@ export default function Dashboard() {
                   placeholder="0.00"
                   className="w-28 text-right"
                 />
-                <button onClick={addFixedCost} className="text-zinc-500 hover:text-zinc-900 text-lg">+</button>
+                <button type="button" onClick={addFixedCost} className="text-zinc-500 hover:text-zinc-900 text-lg">+</button>
               </div>
               <div className="text-right text-sm text-zinc-600">
                 Monthly total: ${localFixed.reduce((s, fc) => s + fc.monthlyCost, 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
