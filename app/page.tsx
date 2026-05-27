@@ -165,7 +165,7 @@ export default function Dashboard() {
       if (json.ok) {
         setVariants(json.data.variants)
         setEditingCOGS(false)
-        fetchData()
+        fetchData(true)
       } else {
         setError(json.error || "Failed to save COGS")
       }
@@ -191,7 +191,7 @@ export default function Dashboard() {
       if (json.ok) {
         setFixedCosts(json.data)
         setEditingFixed(false)
-        fetchData()
+        fetchData(true)
       } else {
         setError(json.error || "Failed to save fixed costs")
       }
