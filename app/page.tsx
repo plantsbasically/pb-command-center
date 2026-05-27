@@ -44,8 +44,20 @@ interface COGSBreakdown {
   totalCOGS: number
 }
 
+interface ChannelSpend {
+  facebook: number
+  google: number
+  microsoft: number
+  tiktok: number
+  snapchat: number
+  pinterest: number
+  amazonAds: number
+  custom: number
+}
+
 interface TWData {
   adSpend: number
+  channelSpend: ChannelSpend
   attributedRevenue: number
   blendedCac: number
   blendedRoas: number
@@ -380,6 +392,40 @@ export default function Dashboard() {
           ))}
         </div>
 
+        {/* Ad Spend by Channel */}
+        {(() => {
+          const cs = twData?.channelSpend
+          const totalSpend = m?.adSpend || 0
+          const channels: { label: string; value: number }[] = cs ? [
+            { label: "Facebook", value: cs.facebook },
+            { label: "Google", value: cs.google },
+            { label: "Microsoft", value: cs.microsoft },
+            { label: "TikTok", value: cs.tiktok },
+            { label: "Snapchat", value: cs.snapchat },
+            { label: "Pinterest", value: cs.pinterest },
+            { label: "Amazon Ads", value: cs.amazonAds },
+            { label: "Custom", value: cs.custom },
+          ].filter((c) => c.value > 0) : []
+
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="card">
+                <div className="metric-big">{fmt(totalSpend)}</div>
+                <div className="metric-label mt-1">Total Blended Ad Spend</div>
+              </div>
+              {channels.map((c) => (
+                <div key={c.label} className="card">
+                  <div className="metric-big">{fmt(c.value)}</div>
+                  {totalSpend > 0 && (
+                    <div className="text-xs text-zinc-400 mt-0.5">{fmtPct((c.value / totalSpend) * 100)} of total</div>
+                  )}
+                  <div className="metric-label mt-1">{c.label}</div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+
         {/* Row 1 — P&L Waterfall */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
@@ -423,9 +469,8 @@ export default function Dashboard() {
         </div>
 
         {/* Row 2 — Acquisition & Customer Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "Ad Spend", value: fmt(m?.adSpend || 0) },
             { label: "CAC", value: m ? fmt(m.cac) : "—" },
             { label: "LTV", value: m ? fmt(m.ltv) : "—" },
             { label: "AOV", value: m ? fmt(m.aov) : "—" },

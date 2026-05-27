@@ -27,8 +27,20 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
   return raw
 }
 
+export interface ChannelSpend {
+  facebook: number
+  google: number
+  microsoft: number
+  tiktok: number
+  snapchat: number
+  pinterest: number
+  amazonAds: number   // Amazon Ads spend (not Amazon revenue)
+  custom: number
+}
+
 export interface TWProcessedData {
   adSpend: number
+  channelSpend: ChannelSpend
   attributedRevenue: number
   blendedCac: number
   blendedRoas: number
@@ -44,21 +56,36 @@ function metricVal(m: any): number {
 }
 
 export function processTWData(rawData: any): TWProcessedData {
-  const empty = { adSpend: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
+  const emptyChannelSpend: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0, custom: 0 }
+  const empty = { adSpend: 0, channelSpend: emptyChannelSpend, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
 
   if (!rawData) return { ...empty, error: "No response" }
   if (rawData.error) return { ...empty, error: rawData.error }
 
   let adSpend = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
   let amazonRevenue = 0, amazonOrders = 0, amazonFees = 0
+  const ch: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0, custom: 0 }
 
   if (Array.isArray(rawData?.metrics)) {
-    // Pass 1: target exact IDs first — prevents overwriting by similar-named metrics
+    // Pass 1: exact ID match — no ambiguity, first-write wins per field
     for (const m of rawData.metrics) {
       const id = String(m.id || "").toLowerCase()
       const val = metricVal(m)
 
+      // Blended total
       if (id === "blendedads" && val > 0 && adSpend === 0) adSpend = val
+
+      // Channel spend
+      if (id === "facebookads" && val > 0) ch.facebook = val
+      if (id === "googleads" && val > 0) ch.google = val
+      if (id === "bingadspend" && val > 0) ch.microsoft = val
+      if (id === "tiktokads" && val > 0) ch.tiktok = val
+      if (id === "snapchatads" && val > 0) ch.snapchat = val
+      if (id === "pinterestads" && val > 0) ch.pinterest = val
+      if (id === "amazonads" && val > 0) ch.amazonAds = val
+      if (id === "totalcustomadspends" && val > 0) ch.custom = val
+
+      // Amazon revenue metrics
       if (id === "amazonproductitemprice" && val > 0) amazonRevenue = val
       if (id === "amazonorders" && val > 0) amazonOrders = val
       if (id === "amazonfees" && val > 0) amazonFees = val
@@ -94,5 +121,5 @@ export function processTWData(rawData: any): TWProcessedData {
   if (adSpend === 0 && rawData.totalAdSpend) adSpend = Number(rawData.totalAdSpend) || 0
   if (attributedRevenue === 0 && rawData.revenue) attributedRevenue = Number(rawData.revenue) || 0
 
-  return { adSpend, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
+  return { adSpend, channelSpend: ch, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
 }
