@@ -148,7 +148,6 @@ export default function Dashboard() {
   const [newFixedName, setNewFixedName] = useState("")
   const [newFixedCost, setNewFixedCost] = useState("")
   const [syncing, setSyncing] = useState(false)
-  const [pushingToTW, setPushingToTW] = useState(false)
   const [fulfillmentInvoices, setFulfillmentInvoices] = useState<FulfillmentInvoice[]>([])
   const [newInvoiceLabel, setNewInvoiceLabel] = useState("")
   const [newInvoiceStart, setNewInvoiceStart] = useState("")
@@ -333,31 +332,6 @@ export default function Dashboard() {
       setError(err.message)
     } finally {
       setSyncing(false)
-    }
-  }
-
-  const pushCOGSToTW = async () => {
-    setPushingToTW(true)
-    try {
-      const res = await fetch("/api/admin", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "pushCOGSToTW" }),
-      })
-      const json = await res.json()
-      if (json.ok) {
-        const tw = json.twSync
-        if (tw.errors?.length) {
-          setError(`TW push: ${tw.pushed} updated, ${tw.errors.length} failed — ${tw.errors[0]}`)
-        }
-        // Silent success — TW will process within ~5 min
-      } else {
-        setError(json.error || "TW push failed")
-      }
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setPushingToTW(false)
     }
   }
 
@@ -641,14 +615,20 @@ export default function Dashboard() {
         </div>
 
         {/* Row 2 — Acquisition & Customer Metrics */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "CAC", value: m ? fmt(m.cac) : "—", hint: null },
-            { label: "LTV", value: m ? fmt(m.ltv) : "—", hint: "Triple Whale all-time avg — historical lifetime spend per customer, not based on selected date range" },
-            { label: "AOV", value: m ? fmt(m.aov) : "—", hint: null },
+            { label: "CAC", value: m ? fmt(m.cac) : "—", cls: "", hint: null },
+            { label: "LTV", value: m ? fmt(m.ltv) : "—", cls: "", hint: "Triple Whale all-time avg — historical lifetime spend per customer, not based on selected date range" },
+            { label: "AOV", value: m ? fmt(m.aov) : "—", cls: "", hint: null },
+            {
+              label: "LTV:CAC",
+              value: m ? m.ltvCacRatio.toFixed(2) + (isFinite(m.ltvCacRatio) ? "×" : "") : "—",
+              cls: ltvCacStatus,
+              hint: `${ltvCacTarget.toFixed(1)}× target`,
+            },
           ].map((metric) => (
             <div key={metric.label} className="card">
-              <div className="metric-big">{metric.value}</div>
+              <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
               <div className="metric-label mt-1">{metric.label}</div>
               {metric.hint && <div className="text-xs text-zinc-400 mt-1 leading-snug">{metric.hint}</div>}
             </div>
@@ -695,15 +675,6 @@ export default function Dashboard() {
             <h2 className="font-semibold text-base">COGS by Variant</h2>
             {!editingCOGS ? (
               <div className="flex gap-2 items-center">
-                <button
-                  type="button"
-                  onClick={pushCOGSToTW}
-                  disabled={pushingToTW || variants.length === 0}
-                  className="btn-outline text-xs disabled:opacity-40"
-                  title="Push your configured COGS costs to Triple Whale. Only variants with totalCost > 0 are sent — existing TW costs are never zeroed out."
-                >
-                  {pushingToTW ? "Pushing..." : "↑ Push to TW"}
-                </button>
                 <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
                   Edit COGS
                 </button>
@@ -924,39 +895,31 @@ export default function Dashboard() {
           {/* Add invoice form */}
           <div className="border-t border-zinc-100 pt-4">
             <div className="text-xs font-medium text-zinc-500 uppercase mb-3">Add Nice Commerce Invoice</div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <input
                 value={newInvoiceLabel}
                 onChange={(e) => setNewInvoiceLabel(e.target.value)}
                 placeholder="Nice Commerce — May 2025"
-                className="md:col-span-1"
               />
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={newInvoiceStart}
-                  onChange={(e) => setNewInvoiceStart(e.target.value)}
-                  className="flex-1"
-                />
-                <span className="text-zinc-400 text-xs">→</span>
-                <input
-                  type="date"
-                  value={newInvoiceEnd}
-                  onChange={(e) => setNewInvoiceEnd(e.target.value)}
-                  className="flex-1"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-500 text-sm">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newInvoiceAmount}
-                  onChange={(e) => setNewInvoiceAmount(e.target.value)}
-                  placeholder="Invoice total"
-                  className="flex-1"
-                />
-              </div>
+              <input
+                type="date"
+                value={newInvoiceStart}
+                onChange={(e) => setNewInvoiceStart(e.target.value)}
+                placeholder="Period start"
+              />
+              <input
+                type="date"
+                value={newInvoiceEnd}
+                onChange={(e) => setNewInvoiceEnd(e.target.value)}
+                placeholder="Period end"
+              />
+              <input
+                type="number"
+                step="0.01"
+                value={newInvoiceAmount}
+                onChange={(e) => setNewInvoiceAmount(e.target.value)}
+                placeholder="Invoice total ($)"
+              />
               <button
                 type="button"
                 onClick={submitInvoice}
