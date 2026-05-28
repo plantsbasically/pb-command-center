@@ -37,14 +37,6 @@ interface FulfillmentInvoice {
   amount: number
 }
 
-interface AmazonFeeInvoice {
-  id: number
-  label: string
-  periodStart: string
-  periodEnd: string
-  amount: number
-}
-
 interface COGSVariant {
   variantKey: string
   variantName: string
@@ -163,12 +155,6 @@ export default function Dashboard() {
   const [newInvoiceEnd, setNewInvoiceEnd] = useState("")
   const [newInvoiceAmount, setNewInvoiceAmount] = useState("")
   const [addingInvoice, setAddingInvoice] = useState(false)
-  const [amazonFeeInvoices, setAmazonFeeInvoices] = useState<AmazonFeeInvoice[]>([])
-  const [newAmazonLabel, setNewAmazonLabel] = useState("")
-  const [newAmazonStart, setNewAmazonStart] = useState("")
-  const [newAmazonEnd, setNewAmazonEnd] = useState("")
-  const [newAmazonAmount, setNewAmazonAmount] = useState("")
-  const [addingAmazonInvoice, setAddingAmazonInvoice] = useState(false)
   const [showAllDatePresets, setShowAllDatePresets] = useState(false)
 
   const fetchData = useCallback(async (bust = false) => {
@@ -190,7 +176,6 @@ export default function Dashboard() {
       setFixedCosts(json.fixedCosts || [])
       setCogsBreakdown(json.cogsBreakdown || [])
       setFulfillmentInvoices(json.fulfillmentInvoices || [])
-      setAmazonFeeInvoices(json.amazonFeeInvoices || [])
       setTwData(json.twData || null)
     } catch (err: any) {
       setError(err.message)
@@ -430,60 +415,6 @@ export default function Dashboard() {
     }
   }
 
-  const submitAmazonFeeInvoice = async () => {
-    if (!newAmazonAmount || !newAmazonStart || !newAmazonEnd) return
-    setAddingAmazonInvoice(true)
-    try {
-      const res = await fetch("/api/admin", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "addAmazonFeeInvoice",
-          data: {
-            label: newAmazonLabel.trim() || "Amazon Fees",
-            periodStart: newAmazonStart,
-            periodEnd: newAmazonEnd,
-            amount: parseFloat(newAmazonAmount) || 0,
-          },
-        }),
-      })
-      const json = await res.json()
-      if (json.ok) {
-        setAmazonFeeInvoices(json.all)
-        setNewAmazonLabel("")
-        setNewAmazonStart("")
-        setNewAmazonEnd("")
-        setNewAmazonAmount("")
-        fetchData(true)
-      } else {
-        setError(json.error || "Failed to add invoice")
-      }
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setAddingAmazonInvoice(false)
-    }
-  }
-
-  const removeAmazonFeeInvoice = async (id: number) => {
-    try {
-      const res = await fetch("/api/admin", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "deleteAmazonFeeInvoice", data: { id } }),
-      })
-      const json = await res.json()
-      if (json.ok) {
-        setAmazonFeeInvoices(json.all)
-        fetchData(true)
-      } else {
-        setError(json.error || "Failed to delete invoice")
-      }
-    } catch (err: any) {
-      setError(err.message)
-    }
-  }
-
   const addFixedCost = () => {
     if (!newFixedName) return
     setLocalFixed([
@@ -683,9 +614,7 @@ export default function Dashboard() {
               value: m && m.amazonFeeInvoiceTotal > 0 ? fmt(m.amazonFeeInvoiceTotal) : "—",
               pct: null,
               cls: m && m.amazonFeeInvoiceTotal > 0 ? "text-orange-600" : "text-zinc-400",
-              hint: m && m.amazonFeeInvoiceTotal > 0
-                ? twData?.amazonFees ? `TW reports ${fmt(twData.amazonFees)} for ref` : "prorated to period"
-                : twData?.amazonFees ? `TW reports ~${fmt(twData.amazonFees)} — add invoice below` : "Add Amazon fees below",
+              hint: "FBA handling fees · sourced from Triple Whale",
             },
             {
               label: "Contribution Profit",
@@ -1035,121 +964,6 @@ export default function Dashboard() {
                 className="btn-primary disabled:opacity-40"
               >
                 {addingInvoice ? "Adding..." : "+ Add Invoice"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Amazon Fees */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-semibold text-base">Amazon Fees</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Platform fees from your Amazon Seller Central transaction report</p>
-            </div>
-          </div>
-
-          {/* Summary stats */}
-          <div className="grid grid-cols-3 gap-3 mb-5">
-            <div className="bg-zinc-50 rounded-lg p-3">
-              <div className="text-sm font-semibold text-zinc-700">
-                {twData?.amazonFees ? fmt(twData.amazonFees) : "—"}
-              </div>
-              <div className="text-xs text-zinc-400 mt-0.5">TW reported Amazon fees (ref)</div>
-            </div>
-            <div className="bg-zinc-50 rounded-lg p-3">
-              <div className="text-sm font-semibold text-zinc-700">
-                {m && m.amazonFeeInvoiceTotal > 0 ? fmt(m.amazonFeeInvoiceTotal) : "—"}
-              </div>
-              <div className="text-xs text-zinc-400 mt-0.5">Amazon fees (prorated to period)</div>
-            </div>
-            <div className={`rounded-lg p-3 ${m && m.amazonFeeInvoiceTotal > 0 ? "bg-orange-50" : "bg-zinc-50"}`}>
-              <div className={`text-sm font-semibold ${m && m.amazonFeeInvoiceTotal > 0 ? "text-orange-700" : "text-zinc-400"}`}>
-                {m && m.amazonFeeInvoiceTotal > 0 && m.amazonRevenue > 0
-                  ? fmtPct((m.amazonFeeInvoiceTotal / m.amazonRevenue) * 100) + " of Amazon rev"
-                  : "—"}
-              </div>
-              <div className="text-xs text-zinc-400 mt-0.5">Fees as % of Amazon revenue</div>
-            </div>
-          </div>
-
-          {/* Invoice list */}
-          {amazonFeeInvoices.length > 0 && (
-            <div className="mb-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-zinc-500 text-xs uppercase border-b border-zinc-200">
-                    <th className="text-left py-2 px-2 font-medium">Invoice</th>
-                    <th className="text-left py-2 px-2 font-medium">Period</th>
-                    <th className="text-right py-2 px-2 font-medium">Amount</th>
-                    <th className="w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {amazonFeeInvoices.map((inv) => (
-                    <tr key={inv.id} className="border-b border-zinc-100">
-                      <td className="py-2.5 px-2 text-sm">{inv.label || "Amazon Fees"}</td>
-                      <td className="py-2.5 px-2 text-xs text-zinc-500">{inv.periodStart} → {inv.periodEnd}</td>
-                      <td className="py-2.5 px-2 text-right font-medium">{fmt(inv.amount)}</td>
-                      <td className="py-2.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => removeAmazonFeeInvoice(inv.id)}
-                          className="text-zinc-400 hover:text-red-500 px-1 text-lg leading-none"
-                        >
-                          ×
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Add invoice form */}
-          <div className="border-t border-zinc-100 pt-4">
-            <div className="text-xs font-medium text-zinc-500 uppercase mb-3">Add Amazon Fee Invoice</div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <input
-                value={newAmazonLabel}
-                onChange={(e) => setNewAmazonLabel(e.target.value)}
-                placeholder="Amazon Fees — May 2026"
-                className="md:col-span-1"
-              />
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={newAmazonStart}
-                  onChange={(e) => setNewAmazonStart(e.target.value)}
-                  className="flex-1"
-                />
-                <span className="text-zinc-400 text-xs">→</span>
-                <input
-                  type="date"
-                  value={newAmazonEnd}
-                  onChange={(e) => setNewAmazonEnd(e.target.value)}
-                  className="flex-1"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-500 text-sm">$</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newAmazonAmount}
-                  onChange={(e) => setNewAmazonAmount(e.target.value)}
-                  placeholder="Total fees"
-                  className="flex-1"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={submitAmazonFeeInvoice}
-                disabled={addingAmazonInvoice || !newAmazonAmount || !newAmazonStart || !newAmazonEnd}
-                className="btn-primary disabled:opacity-40"
-              >
-                {addingAmazonInvoice ? "Adding..." : "+ Add Invoice"}
               </button>
             </div>
           </div>

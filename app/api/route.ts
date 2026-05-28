@@ -35,14 +35,13 @@ export async function GET(req: NextRequest) {
     const { computeMetrics } = await import("@/lib/calculations")
     const { processShopifyData } = await import("@/lib/shopify")
     const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
-    const { getCogsVariants, getFixedCosts, getFulfillmentInvoices, getAmazonFeeInvoices } = await import("@/lib/db")
+    const { getCogsVariants, getFixedCosts, getFulfillmentInvoices } = await import("@/lib/db")
 
     // All fetches run in parallel
-    const [cogsVariants, fixedCostItems, fulfillmentInvoices, amazonFeeInvoices, shopifyData, twRaw] = await Promise.all([
+    const [cogsVariants, fixedCostItems, fulfillmentInvoices, shopifyData, twRaw] = await Promise.all([
       getCogsVariants(),
       getFixedCosts(),
       getFulfillmentInvoices(),
-      getAmazonFeeInvoices(),
       processShopifyData(dateStart, dateEnd),
       fetchTWData(dateStart, dateEnd),
     ])
@@ -67,7 +66,6 @@ export async function GET(req: NextRequest) {
     }
 
     const fulfillmentInvoiceTotal = prorateInvoices(fulfillmentInvoices)
-    const amazonFeeInvoiceTotal = prorateInvoices(amazonFeeInvoices)
 
     const cogsMap = new Map<string, number>()
     for (const v of cogsVariants) {
@@ -81,6 +79,8 @@ export async function GET(req: NextRequest) {
     }
 
     const twData = processTWData(twRaw)
+    // Amazon fees come directly from Triple Whale — no manual invoicing needed
+    const amazonFeeInvoiceTotal = twData.amazonFees
 
     const metrics = computeMetrics({
       shopifyRevenue: shopifyData.revenue,
@@ -114,7 +114,6 @@ export async function GET(req: NextRequest) {
       fixedCosts: fixedCostItems,
       fulfillmentInvoices,
       twData,
-      amazonFeeInvoices,
       _shopifyDebug: shopifyData._debug,
     }
 
