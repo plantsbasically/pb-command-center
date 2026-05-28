@@ -171,10 +171,9 @@ export interface ProcessedShopifyData {
   shippingCollected: number
   _debug: {
     totalOrdersFetched: number
-    excludedOrders: number        // voided + refunded skipped entirely
-    grossSubtotalSum: number      // sum of subtotal_price before refund deduction
-    refundLineItemsDeducted: number  // sum of refund_line_items[].subtotal subtracted
-    netRevenue: number            // should match revenue
+    excludedOrders: number   // voided + fully-refunded, skipped entirely
+    grossSubtotalSum: number // sum of subtotal_price for included orders
+    netRevenue: number       // matches revenue
   }
 }
 
@@ -188,11 +187,13 @@ export async function processShopifyData(
   let ordersCount = 0
   let excludedOrders = 0
   let grossSubtotalSum = 0
-  let refundLineItemsDeducted = 0
   let shippingCollected = 0
   const variantUnitsSold: Record<string, number> = {}
 
-  // Exclude voided and fully-refunded orders entirely
+  // Exclude voided and fully-refunded orders entirely.
+  // subtotal_price already reflects net amounts for partially-refunded orders,
+  // so no additional refund deduction needed — excluding fully-refunded orders
+  // handles the bulk of the adjustment and matches Shopify's Net Sales figure.
   const EXCLUDED_STATUSES = new Set(["voided", "refunded"])
 
   for (const order of orders) {
@@ -200,18 +201,7 @@ export async function processShopifyData(
 
     const subtotal = parseFloat(order.subtotal_price) || 0
     grossSubtotalSum += subtotal
-
-    // Subtract every refunded line item amount to get true net product revenue
-    let refundTotal = 0
-    for (const refund of order.refunds || []) {
-      for (const rli of refund.refund_line_items || []) {
-        refundTotal += parseFloat(String(rli.subtotal)) || 0
-      }
-    }
-    refundLineItemsDeducted += refundTotal
-
-    const orderRevenue = subtotal - refundTotal
-    revenue += orderRevenue
+    revenue += subtotal
     shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
 
@@ -261,7 +251,6 @@ export async function processShopifyData(
       totalOrdersFetched: orders.length,
       excludedOrders,
       grossSubtotalSum,
-      refundLineItemsDeducted,
       netRevenue: revenue,
     },
   }
