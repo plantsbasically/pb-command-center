@@ -142,6 +142,8 @@ export default function Dashboard() {
   const [cogsBreakdown, setCogsBreakdown] = useState<COGSBreakdown[]>([])
   const [twData, setTwData] = useState<TWData | null>(null)
   const [loopData, setLoopData] = useState<LoopData | null>(null)
+  const [subscriptionRevenue, setSubscriptionRevenue] = useState<number>(0)
+  const [subscriptionOrderCount, setSubscriptionOrderCount] = useState<number>(0)
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -183,6 +185,8 @@ export default function Dashboard() {
       setFulfillmentInvoices(json.fulfillmentInvoices || [])
       setTwData(json.twData || null)
       setLoopData(json.loopData || null)
+      setSubscriptionRevenue(json.subscriptionRevenue ?? 0)
+      setSubscriptionOrderCount(json.subscriptionOrderCount ?? 0)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -656,33 +660,36 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Subscription — Loop snapshot */}
+        {/* Subscription — Loop subscribers + period renewal revenue */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="card">
-            <div className="metric-big">{loopData ? loopData.activeSubscribers.toLocaleString() : "—"}</div>
+            <div className="metric-big">
+              {loopData && loopData.activeSubscribers > 0
+                ? loopData.activeSubscribers.toLocaleString()
+                : "—"}
+            </div>
             <div className="metric-label mt-1">Active Subscribers</div>
-            <div className="text-xs text-zinc-400 mt-1 leading-snug">current snapshot · Loop</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">current snapshot · Shopify active_subscriber tag</div>
           </div>
           <div className="card">
-            <div className="metric-big">{loopData ? fmt(loopData.subscriberMRR) : "—"}</div>
-            <div className="metric-label mt-1">Subscriber MRR</div>
-            <div className="text-xs text-zinc-400 mt-1 leading-snug">sum of active subscription values · current snapshot</div>
+            <div className="metric-big">
+              {subscriptionRevenue > 0 ? fmt(subscriptionRevenue) : "—"}
+            </div>
+            <div className="metric-label mt-1">Subscription Revenue</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">
+              {subscriptionOrderCount > 0
+                ? `${subscriptionOrderCount} renewal orders · period`
+                : "renewal orders in period · see /api/debug for source_name"}
+            </div>
           </div>
           <div className="card">
-            <div className={`metric-big ${loopData && m && m.shopifyRevenue > 0 ? "positive" : "text-zinc-400"}`}>
-              {loopData && m && m.shopifyRevenue > 0 && m.ordersCount > 0
-                ? (() => {
-                    // Normalize MRR to the selected date range for an apples-to-apples % comparison
-                    const start = new Date(dateStart)
-                    const end = new Date(dateEnd)
-                    const daysInRange = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
-                    const periodMRR = loopData.subscriberMRR * (daysInRange / 30)
-                    return fmtPct((periodMRR / m.shopifyRevenue) * 100)
-                  })()
+            <div className={`metric-big ${subscriptionRevenue > 0 && m && m.shopifyRevenue > 0 ? "positive" : "text-zinc-400"}`}>
+              {subscriptionRevenue > 0 && m && m.shopifyRevenue > 0
+                ? fmtPct((subscriptionRevenue / m.shopifyRevenue) * 100)
                 : "—"}
             </div>
             <div className="metric-label mt-1">Sub Revenue Share</div>
-            <div className="text-xs text-zinc-400 mt-1 leading-snug">MRR prorated to period vs. Shopify revenue</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">renewal revenue vs. Shopify revenue · period</div>
           </div>
         </div>
 

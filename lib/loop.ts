@@ -1,14 +1,13 @@
 /**
- * Subscription data via Shopify Admin GraphQL `subscriptionContracts`.
- * Loop (and all Shopify subscription apps) use Shopify's native subscription
- * contracts API under the hood, so we can query Shopify directly — no separate
- * Loop API key required.
+ * Subscriber count via Shopify Admin GraphQL — no Loop API needed.
  *
- * Required Shopify scope: read_own_subscription_contracts (Loop sets this up
- * automatically on install).
+ * Loop tags every active subscriber in Shopify with the "active_subscriber" customer tag.
+ * Shopify's customersCount GraphQL query lets us count them in a single call.
  *
- * Never throws — returns zeros if the API is unavailable so the main dashboard
- * still loads.
+ * Subscription revenue is tracked separately in lib/shopify.ts by detecting
+ * Loop renewal orders in the existing order fetch.
+ *
+ * Never throws — returns zeros on any failure.
  */
 
 const STORE_URL = process.env.SHOPIFY_STORE_URL || ""
@@ -16,96 +15,52 @@ const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PAS
 
 export interface LoopData {
   activeSubscribers: number
-  subscriberMRR: number  // sum of (currentPrice × qty) for all ACTIVE contracts
-}
-
-const GQL_ENDPOINT = `https://${STORE_URL.replace(/\/+$/, "")}/admin/api/2025-01/graphql.json`
-
-function buildQuery(cursor: string | null): string {
-  const afterArg = cursor ? `, after: "${cursor}"` : ""
-  return `{
-    subscriptionContracts(first: 250${afterArg}) {
-      edges {
-        node {
-          status
-          lines(first: 20) {
-            edges {
-              node {
-                quantity
-                currentPrice {
-                  amount
-                }
-              }
-            }
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }`
+  subscriberMRR: number  // always 0 — subscription revenue is derived from Shopify orders instead
 }
 
 export async function fetchLoopData(): Promise<LoopData> {
   if (!STORE_URL || !ACCESS_TOKEN) {
-    console.warn("Shopify credentials missing — skipping subscription data")
+    console.warn("Shopify credentials missing — skipping subscriber count")
     return { activeSubscribers: 0, subscriberMRR: 0 }
   }
 
-  let activeCount = 0
-  let totalMRR = 0
-  let cursor: string | null = null
-  let hasNext = true
-  let pages = 0
-  const MAX_PAGES = 20 // 250 × 20 = 5 000 contracts max
+  const endpoint = `https://${STORE_URL.replace(/\/+$/, "")}/admin/api/2025-01/graphql.json`
+
+  const query = `{
+    customersCount(query: "tag:'active_subscriber'") {
+      count
+      precision
+    }
+  }`
 
   try {
-    while (hasNext && pages < MAX_PAGES) {
-      const res: Response = await fetch(GQL_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": ACCESS_TOKEN,
-        },
-        body: JSON.stringify({ query: buildQuery(cursor) }),
-        cache: "no-store",
-      })
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": ACCESS_TOKEN,
+      },
+      body: JSON.stringify({ query }),
+      cache: "no-store",
+    })
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => "")
-        console.error(`Shopify subscriptionContracts ${res.status}: ${body}`)
-        break
-      }
-
-      const json: any = await res.json()
-
-      if (json.errors?.length) {
-        console.error("Shopify GQL errors:", JSON.stringify(json.errors))
-        break
-      }
-
-      const contracts: any = json.data?.subscriptionContracts
-      if (!contracts) break
-
-      for (const { node } of contracts.edges) {
-        if (node.status !== "ACTIVE") continue
-        activeCount++
-        for (const { node: line } of node.lines.edges) {
-          const price = parseFloat(line.currentPrice?.amount ?? "0")
-          const qty = line.quantity ?? 1
-          totalMRR += price * qty
-        }
-      }
-
-      hasNext = contracts.pageInfo.hasNextPage
-      cursor = contracts.pageInfo.endCursor
-      pages++
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error(`Shopify customersCount ${res.status}: ${body}`)
+      return { activeSubscribers: 0, subscriberMRR: 0 }
     }
+
+    const json: any = await res.json()
+
+    if (json.errors?.length) {
+      console.error("Shopify GQL customersCount errors:", JSON.stringify(json.errors))
+      return { activeSubscribers: 0, subscriberMRR: 0 }
+    }
+
+    const count = json.data?.customersCount?.count ?? 0
+    return { activeSubscribers: count, subscriberMRR: 0 }
   } catch (err: any) {
     console.error("fetchLoopData failed:", err?.message)
+    return { activeSubscribers: 0, subscriberMRR: 0 }
   }
-
-  return { activeSubscribers: activeCount, subscriberMRR: totalMRR }
 }

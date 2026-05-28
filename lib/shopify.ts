@@ -118,6 +118,8 @@ interface ShopifyOrder {
   refunds: ShopifyRefund[]   // product refund amounts — subtract from subtotal_price
   customer: ShopifyCustomer | null
   tags: string
+  source_name: string | null   // Loop renewal orders have a Loop-specific value here
+  note_attributes: { name: string; value: string }[]
   total_shipping_price_set: { shop_money: { amount: string } } | null
 }
 
@@ -169,11 +171,14 @@ export interface ProcessedShopifyData {
   totalCustomers: number
   variantUnitsSold: Record<string, number>
   shippingCollected: number
+  subscriptionRevenue: number      // revenue from Loop renewal orders in the period
+  subscriptionOrderCount: number   // count of Loop renewal orders
   _debug: {
     totalOrdersFetched: number
     excludedOrders: number   // voided + fully-refunded, skipped entirely
     grossSubtotalSum: number // sum of subtotal_price for included orders
     netRevenue: number       // matches revenue
+    sourceNames: Record<string, number>  // unique source_name values → count, for Loop detection tuning
   }
 }
 
@@ -188,7 +193,10 @@ export async function processShopifyData(
   let excludedOrders = 0
   let grossSubtotalSum = 0
   let shippingCollected = 0
+  let subscriptionRevenue = 0
+  let subscriptionOrderCount = 0
   const variantUnitsSold: Record<string, number> = {}
+  const sourceNames: Record<string, number> = {}
 
   // Exclude voided and fully-refunded orders entirely.
   // subtotal_price already reflects net amounts for partially-refunded orders,
@@ -196,7 +204,26 @@ export async function processShopifyData(
   // handles the bulk of the adjustment and matches Shopify's Net Sales figure.
   const EXCLUDED_STATUSES = new Set(["voided", "refunded"])
 
+  // Detect Loop subscription renewal orders.
+  // Loop creates renewal orders with one or more of these signals:
+  //   • source_name === "subscription_contract" (Shopify-native subscription apps)
+  //   • source_name contains "loop" or "subscription" (Loop-specific; check debug for actual value)
+  //   • note_attributes contains a key with "subscription" in the name
+  //   • order tags contain "subscription"
+  function isSubscriptionOrder(order: ShopifyOrder): boolean {
+    const src = (order.source_name || "").toLowerCase()
+    if (src === "subscription_contract") return true
+    if (src.includes("loop") || src.includes("subscription")) return true
+    if ((order.tags || "").toLowerCase().includes("subscription")) return true
+    if (order.note_attributes?.some((a) => a.name.toLowerCase().includes("subscription"))) return true
+    return false
+  }
+
   for (const order of orders) {
+    // Track source_name distribution for debug (all orders, even excluded)
+    const src = order.source_name || "(none)"
+    sourceNames[src] = (sourceNames[src] || 0) + 1
+
     if (EXCLUDED_STATUSES.has(order.financial_status)) { excludedOrders++; continue }
 
     const subtotal = parseFloat(order.subtotal_price) || 0
@@ -204,6 +231,11 @@ export async function processShopifyData(
     revenue += subtotal
     shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
+
+    if (isSubscriptionOrder(order)) {
+      subscriptionRevenue += subtotal
+      subscriptionOrderCount++
+    }
 
     for (const item of order.line_items) {
       const variantKey = item.sku || item.variant_id
@@ -247,11 +279,14 @@ export async function processShopifyData(
     totalCustomers: uniqueCustomerIds.size,
     variantUnitsSold,
     shippingCollected,
+    subscriptionRevenue,
+    subscriptionOrderCount,
     _debug: {
       totalOrdersFetched: orders.length,
       excludedOrders,
       grossSubtotalSum,
       netRevenue: revenue,
+      sourceNames,
     },
   }
 }

@@ -117,6 +117,8 @@ export async function GET(req: NextRequest) {
       fulfillmentInvoices,
       twData,
       loopData,
+      subscriptionRevenue: shopifyData.subscriptionRevenue,
+      subscriptionOrderCount: shopifyData.subscriptionOrderCount,
       _shopifyDebug: shopifyData._debug,
     }
 
