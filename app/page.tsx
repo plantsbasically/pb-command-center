@@ -78,6 +78,11 @@ interface TWData {
   amazonFees: number
 }
 
+interface LoopData {
+  activeSubscribers: number
+  subscriberMRR: number
+}
+
 const PRESETS = {
   "Last 7d": () => {
     const end = new Date()
@@ -136,6 +141,7 @@ export default function Dashboard() {
   const [fixedCosts, setFixedCosts] = useState<FixedCostLine[]>([])
   const [cogsBreakdown, setCogsBreakdown] = useState<COGSBreakdown[]>([])
   const [twData, setTwData] = useState<TWData | null>(null)
+  const [loopData, setLoopData] = useState<LoopData | null>(null)
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -176,6 +182,7 @@ export default function Dashboard() {
       setCogsBreakdown(json.cogsBreakdown || [])
       setFulfillmentInvoices(json.fulfillmentInvoices || [])
       setTwData(json.twData || null)
+      setLoopData(json.loopData || null)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -647,6 +654,36 @@ export default function Dashboard() {
               <div className="metric-label mt-1">{metric.label}</div>
             </div>
           ))}
+        </div>
+
+        {/* Subscription — Loop snapshot */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="card">
+            <div className="metric-big">{loopData ? loopData.activeSubscribers.toLocaleString() : "—"}</div>
+            <div className="metric-label mt-1">Active Subscribers</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">current snapshot · Loop</div>
+          </div>
+          <div className="card">
+            <div className="metric-big">{loopData ? fmt(loopData.subscriberMRR) : "—"}</div>
+            <div className="metric-label mt-1">Subscriber MRR</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">sum of active subscription values · current snapshot</div>
+          </div>
+          <div className="card">
+            <div className={`metric-big ${loopData && m && m.shopifyRevenue > 0 ? "positive" : "text-zinc-400"}`}>
+              {loopData && m && m.shopifyRevenue > 0 && m.ordersCount > 0
+                ? (() => {
+                    // Normalize MRR to the selected date range for an apples-to-apples % comparison
+                    const start = new Date(dateStart)
+                    const end = new Date(dateEnd)
+                    const daysInRange = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
+                    const periodMRR = loopData.subscriberMRR * (daysInRange / 30)
+                    return fmtPct((periodMRR / m.shopifyRevenue) * 100)
+                  })()
+                : "—"}
+            </div>
+            <div className="metric-label mt-1">Sub Revenue Share</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">MRR prorated to period vs. Shopify revenue</div>
+          </div>
         </div>
 
         {/* LTV:CAC Target Indicator */}

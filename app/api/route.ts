@@ -36,14 +36,16 @@ export async function GET(req: NextRequest) {
     const { processShopifyData } = await import("@/lib/shopify")
     const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
     const { getCogsVariants, getFixedCosts, getFulfillmentInvoices } = await import("@/lib/db")
+    const { fetchLoopData } = await import("@/lib/loop")
 
     // All fetches run in parallel
-    const [cogsVariants, fixedCostItems, fulfillmentInvoices, shopifyData, twRaw] = await Promise.all([
+    const [cogsVariants, fixedCostItems, fulfillmentInvoices, shopifyData, twRaw, loopData] = await Promise.all([
       getCogsVariants(),
       getFixedCosts(),
       getFulfillmentInvoices(),
       processShopifyData(dateStart, dateEnd),
       fetchTWData(dateStart, dateEnd),
+      fetchLoopData(),
     ])
 
     // Prorate invoices that overlap with the selected date range.
@@ -114,6 +116,7 @@ export async function GET(req: NextRequest) {
       fixedCosts: fixedCostItems,
       fulfillmentInvoices,
       twData,
+      loopData,
       _shopifyDebug: shopifyData._debug,
     }
 
