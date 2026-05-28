@@ -1,72 +1,111 @@
+/**
+ * Subscription data via Shopify Admin GraphQL `subscriptionContracts`.
+ * Loop (and all Shopify subscription apps) use Shopify's native subscription
+ * contracts API under the hood, so we can query Shopify directly — no separate
+ * Loop API key required.
+ *
+ * Required Shopify scope: read_own_subscription_contracts (Loop sets this up
+ * automatically on install).
+ *
+ * Never throws — returns zeros if the API is unavailable so the main dashboard
+ * still loads.
+ */
+
+const STORE_URL = process.env.SHOPIFY_STORE_URL || ""
+const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD || ""
+
 export interface LoopData {
   activeSubscribers: number
-  subscriberMRR: number  // sum of totalLineItemDiscountedPrice across all ACTIVE subs
+  subscriberMRR: number  // sum of (currentPrice × qty) for all ACTIVE contracts
 }
 
-/**
- * Fetch all active Loop subscriptions and compute a point-in-time MRR snapshot.
- * Paginates automatically; never throws — returns zeros on any failure so the
- * main dashboard still loads if Loop is unavailable.
- */
+const GQL_ENDPOINT = `https://${STORE_URL.replace(/\/+$/, "")}/admin/api/2025-01/graphql.json`
+
+function buildQuery(cursor: string | null): string {
+  const afterArg = cursor ? `, after: "${cursor}"` : ""
+  return `{
+    subscriptionContracts(first: 250${afterArg}) {
+      edges {
+        node {
+          status
+          lines(first: 20) {
+            edges {
+              node {
+                quantity
+                currentPrice {
+                  amount
+                }
+              }
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }`
+}
+
 export async function fetchLoopData(): Promise<LoopData> {
-  const apiKey = process.env.LOOP_API_KEY
-  if (!apiKey) {
-    console.warn("LOOP_API_KEY not set — returning empty Loop data")
+  if (!STORE_URL || !ACCESS_TOKEN) {
+    console.warn("Shopify credentials missing — skipping subscription data")
     return { activeSubscribers: 0, subscriberMRR: 0 }
   }
 
-  const baseUrl = "https://api.loopsubscriptions.com/storefront/2023-10/subscription"
-  const allSubs: any[] = []
+  let activeCount = 0
+  let totalMRR = 0
   let cursor: string | null = null
-  let page = 1
-  const MAX_PAGES = 20  // guard against runaway loops (~5 000 subs max)
+  let hasNext = true
+  let pages = 0
+  const MAX_PAGES = 20 // 250 × 20 = 5 000 contracts max
 
   try {
-    while (page <= MAX_PAGES) {
-      const params = new URLSearchParams({ status: "ACTIVE", limit: "250" })
-      if (cursor) params.set("cursor", cursor)
-
-      const res = await fetch(`${baseUrl}?${params}`, {
+    while (hasNext && pages < MAX_PAGES) {
+      const res: Response = await fetch(GQL_ENDPOINT, {
+        method: "POST",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          "X-Shopify-Access-Token": ACCESS_TOKEN,
         },
-        // Always fetch fresh — Loop data is a live snapshot, not date-range data
+        body: JSON.stringify({ query: buildQuery(cursor) }),
         cache: "no-store",
       })
 
       if (!res.ok) {
         const body = await res.text().catch(() => "")
-        console.error(`Loop API error ${res.status}: ${body}`)
+        console.error(`Shopify subscriptionContracts ${res.status}: ${body}`)
         break
       }
 
-      const json = await res.json()
-      const batch: any[] = json.data ?? []
-      allSubs.push(...batch)
+      const json: any = await res.json()
 
-      // Attempt to find a next-page cursor in common patterns
-      cursor =
-        json.pageInfo?.endCursor ??
-        json.pagination?.nextCursor ??
-        json.meta?.nextCursor ??
-        null
+      if (json.errors?.length) {
+        console.error("Shopify GQL errors:", JSON.stringify(json.errors))
+        break
+      }
 
-      // Stop if no cursor or batch was smaller than the page size
-      if (!cursor || batch.length < 250) break
-      page++
+      const contracts: any = json.data?.subscriptionContracts
+      if (!contracts) break
+
+      for (const { node } of contracts.edges) {
+        if (node.status !== "ACTIVE") continue
+        activeCount++
+        for (const { node: line } of node.lines.edges) {
+          const price = parseFloat(line.currentPrice?.amount ?? "0")
+          const qty = line.quantity ?? 1
+          totalMRR += price * qty
+        }
+      }
+
+      hasNext = contracts.pageInfo.hasNextPage
+      cursor = contracts.pageInfo.endCursor
+      pages++
     }
   } catch (err: any) {
-    console.error("Loop fetch failed:", err?.message)
+    console.error("fetchLoopData failed:", err?.message)
   }
 
-  const subscriberMRR = allSubs.reduce(
-    (sum, sub) => sum + (parseFloat(sub.totalLineItemDiscountedPrice) || 0),
-    0
-  )
-
-  return {
-    activeSubscribers: allSubs.length,
-    subscriberMRR,
-  }
+  return { activeSubscribers: activeCount, subscriberMRR: totalMRR }
 }
