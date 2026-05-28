@@ -533,6 +533,45 @@ export default function Dashboard() {
           ))}
         </div>
 
+        {/* Revenue by Channel — Bar Chart */}
+        {m && (
+          <div className="card">
+            <h2 className="font-semibold text-base mb-4">Revenue by Channel</h2>
+            {(() => {
+              const total = m.revenue || 1
+              const shopifyDirect = Math.max(0, (m.shopifyRevenue || 0) - subscriptionRevenue)
+              const channels = [
+                { label: "Shopify (one-time)", value: shopifyDirect, color: "bg-zinc-800" },
+                { label: "Subscriptions", value: subscriptionRevenue, color: "bg-emerald-500" },
+                { label: "Amazon", value: m.amazonRevenue || 0, color: "bg-amber-500" },
+              ]
+              return (
+                <div className="space-y-4">
+                  {channels.map((c) => (
+                    <div key={c.label}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2.5 h-2.5 rounded-sm ${c.color}`} />
+                          <span className="text-sm font-medium text-zinc-700">{c.label}</span>
+                        </div>
+                        <span className="text-sm text-zinc-500">
+                          {fmt(c.value)}{total > 0 ? <span className="text-zinc-400 ml-1.5">{fmtPct((c.value / total) * 100)}</span> : null}
+                        </span>
+                      </div>
+                      <div className="h-7 bg-zinc-100 rounded-md overflow-hidden">
+                        <div
+                          className={`h-full ${c.color} rounded-md transition-all duration-700`}
+                          style={{ width: total > 0 ? `${Math.max(c.value > 0 ? 0.5 : 0, (c.value / total) * 100)}%` : "0%" }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
         {/* Ad Spend by Channel */}
         {(() => {
           const cs = twData?.channelSpend
@@ -660,17 +699,8 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Subscription — Loop subscribers + period renewal revenue */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="card">
-            <div className="metric-big">
-              {loopData && loopData.activeSubscribers > 0
-                ? loopData.activeSubscribers.toLocaleString()
-                : "—"}
-            </div>
-            <div className="metric-label mt-1">Active Subscribers</div>
-            <div className="text-xs text-zinc-400 mt-1 leading-snug">current snapshot · Shopify active_subscriber tag</div>
-          </div>
+        {/* Subscription — period renewal revenue */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="card">
             <div className="metric-big">
               {subscriptionRevenue > 0 ? fmt(subscriptionRevenue) : "—"}
@@ -678,8 +708,8 @@ export default function Dashboard() {
             <div className="metric-label mt-1">Subscription Revenue</div>
             <div className="text-xs text-zinc-400 mt-1 leading-snug">
               {subscriptionOrderCount > 0
-                ? `${subscriptionOrderCount} renewal orders · period`
-                : "renewal orders in period · see /api/debug for source_name"}
+                ? `${subscriptionOrderCount.toLocaleString()} renewal orders · period`
+                : "renewal orders in period"}
             </div>
           </div>
           <div className="card">
