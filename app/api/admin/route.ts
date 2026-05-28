@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBasicAuthHeader, authHeaders } from "@/lib/auth"
-import { getCogsVariants, saveCogsVariants, getFixedCosts, saveFixedCosts, addFulfillmentInvoice, deleteFulfillmentInvoice, getFulfillmentInvoices } from "@/lib/db"
+import { getCogsVariants, saveCogsVariants, getFixedCosts, saveFixedCosts, addFulfillmentInvoice, deleteFulfillmentInvoice, getFulfillmentInvoices, addAmazonFeeInvoice, deleteAmazonFeeInvoice, getAmazonFeeInvoices } from "@/lib/db"
 
 function checkAuth(req: NextRequest) {
   const auth = getBasicAuthHeader(req.headers.get("authorization"))
@@ -67,6 +67,18 @@ export async function PUT(req: NextRequest) {
     if (action === "deleteFulfillmentInvoice") {
       await deleteFulfillmentInvoice(data.id)
       const all = await getFulfillmentInvoices()
+      return NextResponse.json({ ok: true, all })
+    }
+
+    if (action === "addAmazonFeeInvoice") {
+      const invoice = await addAmazonFeeInvoice(data)
+      const all = await getAmazonFeeInvoices()
+      return NextResponse.json({ ok: true, invoice, all })
+    }
+
+    if (action === "deleteAmazonFeeInvoice") {
+      await deleteAmazonFeeInvoice(data.id)
+      const all = await getAmazonFeeInvoices()
       return NextResponse.json({ ok: true, all })
     }
 
