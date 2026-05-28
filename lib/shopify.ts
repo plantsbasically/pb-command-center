@@ -168,7 +168,14 @@ export interface ProcessedShopifyData {
   newCustomers: number
   totalCustomers: number
   variantUnitsSold: Record<string, number>
-  shippingCollected: number  // gross shipping charged to customers (net of shipping discounts)
+  shippingCollected: number
+  _debug: {
+    totalOrdersFetched: number
+    excludedOrders: number        // voided + refunded skipped entirely
+    grossSubtotalSum: number      // sum of subtotal_price before refund deduction
+    refundLineItemsDeducted: number  // sum of refund_line_items[].subtotal subtracted
+    netRevenue: number            // should match revenue
+  }
 }
 
 export async function processShopifyData(
@@ -179,6 +186,9 @@ export async function processShopifyData(
 
   let revenue = 0
   let ordersCount = 0
+  let excludedOrders = 0
+  let grossSubtotalSum = 0
+  let refundLineItemsDeducted = 0
   let shippingCollected = 0
   const variantUnitsSold: Record<string, number> = {}
 
@@ -186,16 +196,21 @@ export async function processShopifyData(
   const EXCLUDED_STATUSES = new Set(["voided", "refunded"])
 
   for (const order of orders) {
-    if (EXCLUDED_STATUSES.has(order.financial_status)) continue
+    if (EXCLUDED_STATUSES.has(order.financial_status)) { excludedOrders++; continue }
 
-    // Start with subtotal_price (gross sales minus discounts, no tax, no shipping)
-    // then subtract every refunded line item amount to get true net product revenue
-    let orderRevenue = parseFloat(order.subtotal_price) || 0
+    const subtotal = parseFloat(order.subtotal_price) || 0
+    grossSubtotalSum += subtotal
+
+    // Subtract every refunded line item amount to get true net product revenue
+    let refundTotal = 0
     for (const refund of order.refunds || []) {
       for (const rli of refund.refund_line_items || []) {
-        orderRevenue -= parseFloat(rli.subtotal) || 0
+        refundTotal += parseFloat(String(rli.subtotal)) || 0
       }
     }
+    refundLineItemsDeducted += refundTotal
+
+    const orderRevenue = subtotal - refundTotal
     revenue += orderRevenue
     shippingCollected += parseFloat(order.total_shipping_price_set?.shop_money?.amount || "0") || 0
     ordersCount++
@@ -242,5 +257,12 @@ export async function processShopifyData(
     totalCustomers: uniqueCustomerIds.size,
     variantUnitsSold,
     shippingCollected,
+    _debug: {
+      totalOrdersFetched: orders.length,
+      excludedOrders,
+      grossSubtotalSum,
+      refundLineItemsDeducted,
+      netRevenue: revenue,
+    },
   }
 }

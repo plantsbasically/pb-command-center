@@ -111,6 +111,7 @@ export async function GET(req: NextRequest) {
       fixedCosts: fixedCostItems,
       fulfillmentInvoices,
       twData,
+      _shopifyDebug: shopifyData._debug,
     }
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() })
