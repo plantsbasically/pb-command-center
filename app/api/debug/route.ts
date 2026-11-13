@@ -34,16 +34,24 @@ export async function GET(req: NextRequest) {
 
   // --- Shopify Orders Sample ---
   try {
-    const STORE_URL = process.env.SHOPIFY_STORE_URL || ""
-    const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD || ""
-    const BASE = STORE_URL.replace(/\/+$/, "")
-    const url = `https://${BASE}/admin/api/2025-01/orders.json?status=any&limit=5&created_at_min=${dateStart}T00:00:00&created_at_max=${dateEnd}T23:59:59`
+    const { getShopifyAccessToken, getShopifyStoreDomain } = await import("@/lib/shopify")
+    const token = await getShopifyAccessToken()
+    const domain = getShopifyStoreDomain()
+    const url = `https://${domain}/admin/api/2025-01/orders.json?status=any&limit=5&created_at_min=${dateStart}T00:00:00&created_at_max=${dateEnd}T23:59:59`
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": ACCESS_TOKEN },
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     })
-    const json = await res.json()
+    // On 401 with client credentials, invalidate + retry once via shared helper
+    let finalRes = res
+    if (res.status === 401 && process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET) {
+      const retryToken = await getShopifyAccessToken({ forceRefresh: true })
+      finalRes = await fetch(url, {
+        headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": retryToken },
+      })
+    }
+    const json = await finalRes.json()
     results.shopify = {
-      status: res.status,
+      status: finalRes.status,
       orderCount: json.orders?.length,
       sampleOrders: (json.orders || []).slice(0, 3).map((o: any) => ({
         id: o.id,
@@ -67,7 +75,10 @@ export async function GET(req: NextRequest) {
 
   // --- Env var presence check (never expose values) ---
   results.envCheck = {
+    SHOPIFY_STORE_DOMAIN: !!process.env.SHOPIFY_STORE_DOMAIN,
     SHOPIFY_STORE_URL: !!process.env.SHOPIFY_STORE_URL,
+    SHOPIFY_CLIENT_ID: !!process.env.SHOPIFY_CLIENT_ID,
+    SHOPIFY_CLIENT_SECRET: !!process.env.SHOPIFY_CLIENT_SECRET,
     SHOPIFY_ACCESS_TOKEN: !!(process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD),
     TRIPLEWHALE_API_KEY: !!process.env.TRIPLEWHALE_API_KEY,
   }
