@@ -1,17 +1,113 @@
-const STORE_URL = process.env.SHOPIFY_STORE_URL || ""
-const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD || ""
-const BASE = STORE_URL.replace(/\/+$/, "")
-const SHOPIFY_API_BASE = `https://${BASE}/admin/api/2025-01`
+const REFRESH_SKEW_MS = 5 * 60 * 1000 // refresh ~5 min before expiry
+
+function normalizeShopDomain(raw: string): string {
+  return raw.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "")
+}
+
+const STORE_DOMAIN = normalizeShopDomain(
+  process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOPIFY_STORE_URL || ""
+)
+const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID || ""
+const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET || ""
+const STATIC_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_PASSWORD || ""
+const hasClientCredentials = Boolean(CLIENT_ID && CLIENT_SECRET)
+
+const SHOPIFY_API_BASE = `https://${STORE_DOMAIN}/admin/api/2025-01`
+
+let cachedToken: { token: string; expiresAt: number } | null = null
+let inflightRefresh: Promise<string> | null = null
+
+async function requestClientCredentialsToken(): Promise<string> {
+  const res = await fetch(`https://${STORE_DOMAIN}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+    }),
+  })
+
+  if (!res.ok) {
+    // Do not include response body — it may echo credentials or tokens.
+    throw new Error(`Shopify token request failed: ${res.status}`)
+  }
+
+  const data = await res.json()
+  const accessToken = data?.access_token
+  if (!accessToken || typeof accessToken !== "string") {
+    throw new Error("Shopify token request returned no access_token")
+  }
+
+  const expiresInSec = Number(data.expires_in)
+  const ttlMs =
+    Number.isFinite(expiresInSec) && expiresInSec > 0
+      ? expiresInSec * 1000
+      : 86399 * 1000
+
+  cachedToken = {
+    token: accessToken,
+    expiresAt: Date.now() + ttlMs,
+  }
+  return cachedToken.token
+}
+
+function clearTokenCache() {
+  cachedToken = null
+}
+
+/** Public accessor for Admin API callers (e.g. debug). Never log the return value. */
+export async function getShopifyAccessToken(opts?: { forceRefresh?: boolean }): Promise<string> {
+  return getAccessToken(opts)
+}
+
+export function getShopifyStoreDomain(): string {
+  return STORE_DOMAIN
+}
+
+async function getAccessToken({ forceRefresh = false } = {}): Promise<string> {
+  if (!hasClientCredentials) {
+    if (STATIC_TOKEN) return STATIC_TOKEN
+    throw new Error(
+      "Shopify credentials not configured (set SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET, or SHOPIFY_ACCESS_TOKEN)"
+    )
+  }
+
+  if (forceRefresh) {
+    cachedToken = null
+  } else if (cachedToken && Date.now() < cachedToken.expiresAt - REFRESH_SKEW_MS) {
+    return cachedToken.token
+  }
+
+  if (!inflightRefresh) {
+    inflightRefresh = requestClientCredentialsToken().finally(() => {
+      inflightRefresh = null
+    })
+  }
+  return inflightRefresh
+}
+
+async function shopifyAdminFetch(url: string, retried = false): Promise<Response> {
+  const token = await getAccessToken({ forceRefresh: retried })
+  const res = await fetch(url, {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": token,
+    },
+  })
+
+  if (res.status === 401 && !retried && hasClientCredentials) {
+    clearTokenCache()
+    return shopifyAdminFetch(url, true)
+  }
+
+  return res
+}
 
 async function shopifyFetch(endpoint: string, params: Record<string, string> = {}) {
   const qs = new URLSearchParams(params).toString()
   const url = `${SHOPIFY_API_BASE}/${endpoint}${qs ? "?" + qs : ""}`
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": ACCESS_TOKEN,
-    },
-  })
+  const res = await shopifyAdminFetch(url)
   if (!res.ok) {
     throw new Error(`Shopify API ${res.status}: ${await res.text()}`)
   }
@@ -61,9 +157,7 @@ export async function fetchProducts(): Promise<ShopifyVariantSummary[]> {
 
   let nextUrl = parseNextLink(firstRes.headers.get("link"))
   while (nextUrl) {
-    const res = await fetch(nextUrl, {
-      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": ACCESS_TOKEN },
-    })
+    const res = await shopifyAdminFetch(nextUrl)
     if (!res.ok) break
     const data: any = await res.json()
     if (!data.products?.length) break
@@ -145,12 +239,7 @@ export async function fetchOrders(dateStart: string, dateEnd: string): Promise<S
   let nextUrl = parseNextLink(firstRes.headers.get("link"))
 
   while (nextUrl && allOrders.length < 25000) {
-    const res = await fetch(nextUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": ACCESS_TOKEN,
-      },
-    })
+    const res = await shopifyAdminFetch(nextUrl)
     if (!res.ok) throw new Error(`Shopify pagination ${res.status}: ${await res.text()}`)
     const data: OrdersResponse = await res.json()
     if (!data.orders.length) break
