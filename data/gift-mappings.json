@@ -1,0 +1,267 @@
+{
+  "_meta": {
+    "description": "Maps subscription selling plans / parent SKUs to free-gift SKUs included in the welcome kit (order 1) and later loyalty gifts. Seeded from Shopify order line items (_bundle_parent properties, 100% discounted gift lines) cross-checked against Notion SOP 'Juicy Joint Extract Welcome Kit & Subscriber Gifts' (effective Oct 15 2026, updated Oct 22). Kyle should confirm TODOs before treating unknown mappings as authoritative.",
+    "sources": [
+      "Shopify orders: _bundle_parent juicy-joint / juicy-joint-60, 100% discounted child lines",
+      "Notion SOP: 3d1150cd-3926-8147-8fba-c8bba55e48b2",
+      "Notion CS Guide: 3d1150cd-3926-8150-b2e4-f5f6d6dc16a3"
+    ],
+    "cogsRule": "Gift line items are valued at cogs_variants.total_cost for the gift SKU (or cogsAlias), never at retail/discounted retail."
+  },
+  "giftSkus": [
+    {
+      "sku": "JJ33CP-SS",
+      "name": "Collagen Stick Packs (3ct)",
+      "aliases": ["JJ33CP-SS_V", "JJ33CP-FREE"],
+      "cogsAlias": "JJ33CP-SS",
+      "isDigital": false,
+      "notes": "Physical gift. JJ33CP-FREE is a legacy free-gift SKU with $0 COGS configured — use JJ33CP-SS COGS."
+    },
+    {
+      "sku": "JJ33CP-SS_5ct",
+      "name": "Collagen Stick Packs (5ct)",
+      "aliases": [],
+      "cogsAlias": "JJ33CP-SS_5ct",
+      "isDigital": false,
+      "notes": "Later-order loyalty gift (order 3 on 90-day; order 5 on 30/60-day)."
+    },
+    {
+      "sku": "JJ33PTP",
+      "name": "Recovery Tracker Booklet",
+      "aliases": ["JJ33PTP_V"],
+      "cogsAlias": "JJ33PTP",
+      "isDigital": false,
+      "notes": "Physical pamphlet / booklet."
+    },
+    {
+      "sku": "JJ33PT-APP",
+      "name": "Recovery Tracker App Access",
+      "aliases": [],
+      "cogsAlias": "JJ33PT-APP",
+      "isDigital": true,
+      "notes": "Digital — COGS should remain $0."
+    },
+    {
+      "sku": "JJ33EBOOK",
+      "name": "90-Day Disc Guide (ebook)",
+      "aliases": ["JJ33EBOOK-D"],
+      "cogsAlias": "JJ33EBOOK",
+      "isDigital": true,
+      "notes": "Digital — COGS should remain $0. Not included on 30-day welcome kit."
+    },
+    {
+      "sku": "SLEEPMASK",
+      "name": "Recovering Sleep Mask",
+      "aliases": [],
+      "cogsAlias": "SLEEPMASK",
+      "isDigital": false,
+      "notes": "Later-order loyalty gift."
+    },
+    {
+      "sku": "LAXBALL",
+      "name": "Lacrosse Ball",
+      "aliases": [],
+      "cogsAlias": "LAXBALL",
+      "isDigital": false,
+      "notes": "Later-order loyalty gift."
+    },
+    {
+      "sku": "JJBALM-1",
+      "name": "Juicy Joint Balm - 1 JAR",
+      "aliases": [],
+      "cogsAlias": "JJBALM-1",
+      "isDigital": false,
+      "notes": "Later-order loyalty gift (balm). TODO(Kyle): confirm whether gift shipments use JJBALM-1 or a free-gift alias SKU."
+    }
+  ],
+  "plans": [
+    {
+      "planKey": "jj-supply-30",
+      "planName": "Juicy Joint Supply — 30-day (1 bottle)",
+      "status": "confirmed",
+      "parentSkus": ["JJPWK30"],
+      "bundleParentValues": ["juicy-joint"],
+      "sellingPlanHint": "Deliver every 4 WEEK",
+      "welcomeGifts": [
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {
+        "2": [{ "sku": "SLEEPMASK", "qty": 1 }],
+        "3": [{ "sku": "LAXBALL", "qty": 1 }],
+        "4": [{ "sku": "JJBALM-1", "qty": 1 }],
+        "5": [{ "sku": "JJ33CP-SS_5ct", "qty": 1 }],
+        "6": []
+      },
+      "notes": "No ebook on 30-day. Order 6 mystery gift — TODO(Kyle): name SKU.",
+      "todos": ["TODO(Kyle): confirm mystery gift SKU for order 6"]
+    },
+    {
+      "planKey": "jj-supply-60",
+      "planName": "Juicy Joint Supply — 60-day (2 bottles)",
+      "status": "confirmed",
+      "parentSkus": ["JJ33DR-2-KIT"],
+      "bundleParentValues": ["juicy-joint-60"],
+      "sellingPlanHint": "Deliver every 8 WEEK",
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {
+        "2": [{ "sku": "SLEEPMASK", "qty": 1 }],
+        "3": [{ "sku": "LAXBALL", "qty": 1 }],
+        "4": [{ "sku": "JJBALM-1", "qty": 1 }],
+        "5": [{ "sku": "JJ33CP-SS_5ct", "qty": 1 }],
+        "6": []
+      },
+      "notes": "Default PDP selection (Most Popular).",
+      "todos": ["TODO(Kyle): confirm mystery gift SKU for order 6"]
+    },
+    {
+      "planKey": "jj-supply-90",
+      "planName": "Juicy Joint Supply — 90-day (3 bottles)",
+      "status": "confirmed",
+      "parentSkus": ["JJPWK90"],
+      "bundleParentValues": ["juicy-joint-90", "juicy-joint"],
+      "sellingPlanHint": "Deliver every 12 WEEK",
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {
+        "2": [
+          { "sku": "SLEEPMASK", "qty": 1 },
+          { "sku": "LAXBALL", "qty": 1 }
+        ],
+        "3": [
+          { "sku": "JJBALM-1", "qty": 1 },
+          { "sku": "JJ33CP-SS_5ct", "qty": 1 }
+        ],
+        "4": [],
+        "5": []
+      },
+      "notes": "Orders 4–5 are mystery gifts per SOP.",
+      "todos": [
+        "TODO(Kyle): confirm mystery gift SKUs for orders 4 and 5",
+        "TODO(Kyle): confirm _bundle_parent value for 90-day (orders also use juicy-joint)"
+      ]
+    },
+    {
+      "planKey": "jj-bottle-1-subscribe",
+      "planName": "Juicy Joint 1-bottle Subscribe & Save (legacy / Loop bottle SKU)",
+      "status": "todo",
+      "parentSkus": ["JJ33DR-1"],
+      "bundleParentValues": [],
+      "sellingPlanHint": "Loop Subscribe & Save on JJ33DR-1",
+      "welcomeGifts": [],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Observed SLEEPMASK / LAXBALL on later JJ33DR-1 subscription orders. Welcome kit may differ from Supply SKUs.",
+      "todos": [
+        "TODO(Kyle): confirm whether JJ33DR-1 S&S still gets the Supply welcome kit or only loyalty gifts",
+        "TODO(Kyle): map Loop selling-plan IDs for JJ33DR-1 / JJ33DR-2 / JJ33DR-3"
+      ]
+    },
+    {
+      "planKey": "deluxe-30",
+      "planName": "Deluxe Joint System — 30 Days",
+      "status": "inferred",
+      "parentSkus": ["JJARPCPWK-30", "JJARCP-1"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Inferred from Shopify co-occurrence (same gift stack as 60/90 Supply). Low sample size.",
+      "todos": ["TODO(Kyle): confirm Deluxe / Ultimate / Relief system gift stacks"]
+    },
+    {
+      "planKey": "deluxe-90",
+      "planName": "Deluxe Joint System — 90 Days",
+      "status": "inferred",
+      "parentSkus": ["JJARPCPWK-90", "JJARCP-3"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Inferred from Shopify co-occurrence.",
+      "todos": ["TODO(Kyle): confirm Deluxe 90-day gift stack"]
+    },
+    {
+      "planKey": "ultimate-30",
+      "planName": "Ultimate Joint System — 30 Days",
+      "status": "inferred",
+      "parentSkus": ["UJPWK-30"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Inferred from Shopify co-occurrence.",
+      "todos": ["TODO(Kyle): confirm Ultimate 30-day gift stack"]
+    },
+    {
+      "planKey": "ultimate-90",
+      "planName": "Ultimate Joint System — 90 Days",
+      "status": "inferred",
+      "parentSkus": ["UJPWK-90", "UltimateJointBundleMain-3"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Inferred from Shopify co-occurrence.",
+      "todos": ["TODO(Kyle): confirm Ultimate 90-day gift stack"]
+    },
+    {
+      "planKey": "relief-30",
+      "planName": "Joint Relief System — 30 Days",
+      "status": "inferred",
+      "parentSkus": ["JRPWK-30", "JRP-30days"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [
+        { "sku": "JJ33EBOOK", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33PTP", "qty": 1 },
+        { "sku": "JJ33PT-APP", "qty": 1 }
+      ],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Inferred from Shopify co-occurrence.",
+      "todos": ["TODO(Kyle): confirm Relief system gift stack (ebook on 30-day may be wrong vs Supply rules)"]
+    },
+    {
+      "planKey": "relief-90",
+      "planName": "Joint Relief System — 90 Days",
+      "status": "todo",
+      "parentSkus": ["JRPWK-90", "JRP-90days"],
+      "bundleParentValues": [],
+      "sellingPlanHint": null,
+      "welcomeGifts": [],
+      "loyaltyGiftsByOrder": {},
+      "notes": "Insufficient recent order co-occurrence in seed window.",
+      "todos": ["TODO(Kyle): map Relief 90-day welcome + loyalty gifts"]
+    }
+  ]
+}

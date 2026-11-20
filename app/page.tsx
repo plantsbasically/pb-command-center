@@ -1,22 +1,27 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 
 interface Metrics {
   revenue: number
   shopifyRevenue: number
   amazonRevenue: number
+  tiktokRevenue: number
   cogs: number
   shopifyCOGS: number
   amazonCOGS: number
+  tiktokCOGS: number
   grossProfit: number
   grossMarginPct: number
   shippingCollected: number
   fulfillmentInvoiceTotal: number
   netFulfillmentCost: number
   amazonFeeInvoiceTotal: number
+  tiktokFees: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
+  trueContributionMargin: number
+  trueContributionMarginPct: number
   fixedCosts: number
   netProfit: number
   netMarginPct: number
@@ -27,6 +32,36 @@ interface Metrics {
   ltvCacRatio: number
   ordersCount: number
   aov: number
+}
+
+interface DailyContribution {
+  date: string
+  contributionMargin: number
+  contributionMarginPct: number
+  revenue: number
+  adSpend: number
+  cogs: number
+  components: {
+    shopifyRevenue: number
+    amazonRevenue: number
+    tiktokRevenue: number
+    shopifyCOGS: number
+    amazonCOGS: number
+    tiktokCOGS: number
+    giftCOGS: number
+    giftRetailDiscounted: number
+  }
+  formula: string
+}
+
+interface GiftPlanMapping {
+  planKey: string
+  planName: string
+  status: "confirmed" | "inferred" | "todo"
+  parentSkus: string[]
+  welcomeGifts: { sku: string; qty: number }[]
+  notes?: string
+  todos: string[]
 }
 
 interface FulfillmentInvoice {
@@ -133,6 +168,44 @@ function fmtPct(n: number): string {
   return n.toFixed(1) + "%"
 }
 
+/** Animated count-up for the daily contribution margin hero. */
+function CountUp({ value, durationMs = 1200 }: { value: number; durationMs?: number }) {
+  const [display, setDisplay] = useState(0)
+  const prev = useRef(0)
+
+  useEffect(() => {
+    const from = prev.current
+    const to = value
+    prev.current = to
+    if (!isFinite(to)) {
+      setDisplay(0)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs)
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(from + (to - from) * eased)
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [value, durationMs])
+
+  const sign = display < 0 ? "−" : ""
+  return (
+    <span>
+      {sign}$
+      {Math.abs(display).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}
+    </span>
+  )
+}
+
 export default function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -144,6 +217,8 @@ export default function Dashboard() {
   const [loopData, setLoopData] = useState<LoopData | null>(null)
   const [subscriptionRevenue, setSubscriptionRevenue] = useState<number>(0)
   const [subscriptionOrderCount, setSubscriptionOrderCount] = useState<number>(0)
+  const [dailyContribution, setDailyContribution] = useState<DailyContribution | null>(null)
+  const [giftPlans, setGiftPlans] = useState<GiftPlanMapping[]>([])
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -187,6 +262,8 @@ export default function Dashboard() {
       setLoopData(json.loopData || null)
       setSubscriptionRevenue(json.subscriptionRevenue ?? 0)
       setSubscriptionOrderCount(json.subscriptionOrderCount ?? 0)
+      setDailyContribution(json.dailyContribution || null)
+      setGiftPlans(json.giftMappings?.plans || [])
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -506,13 +583,61 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Daily Contribution Margin — hero */}
+        {dailyContribution && (
+          <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-900 via-zinc-800 to-emerald-950 text-white px-6 py-8 md:px-10 md:py-10 shadow-sm">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-30"
+              style={{
+                backgroundImage:
+                  "radial-gradient(ellipse at 20% 0%, rgba(74,222,128,0.35), transparent 50%), radial-gradient(ellipse at 90% 80%, rgba(255,255,255,0.08), transparent 40%)",
+              }}
+            />
+            <div className="relative">
+              <div className="text-xs uppercase tracking-[0.2em] text-zinc-400 mb-3">
+                Daily contribution margin · {dailyContribution.date}
+              </div>
+              <div
+                className={`text-4xl md:text-6xl font-bold tracking-tight tabular-nums ${
+                  dailyContribution.contributionMargin >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}
+              >
+                <CountUp value={dailyContribution.contributionMargin} />
+              </div>
+              <div className="mt-2 text-sm text-zinc-400">
+                {fmtPct(dailyContribution.contributionMarginPct)} of today&apos;s revenue
+              </div>
+              <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-400 font-mono">
+                <span>
+                  Revenue <span className="text-zinc-200">{fmt(dailyContribution.revenue)}</span>
+                </span>
+                <span className="text-zinc-600">−</span>
+                <span>
+                  Ad spend <span className="text-zinc-200">{fmt(dailyContribution.adSpend)}</span>
+                </span>
+                <span className="text-zinc-600">−</span>
+                <span>
+                  COGS <span className="text-zinc-200">{fmt(dailyContribution.cogs)}</span>
+                </span>
+              </div>
+              <div className="mt-3 text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
+                {dailyContribution.formula}. Free gifts valued at COGS
+                {dailyContribution.components.giftCOGS > 0
+                  ? ` (today gift COGS ${fmt(dailyContribution.components.giftCOGS)}; gift retail ${fmt(dailyContribution.components.giftRetailDiscounted)} excluded from revenue)`
+                  : ""}.
+                Command-center only — Triple Whale unchanged.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Revenue by Channel */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             {
               label: "Total Blended Revenue",
               value: fmt(m?.revenue || 0),
-              sub: null,
+              sub: "Shopify + Amazon + TikTok Shop",
             },
             {
               label: "Shopify Revenue",
@@ -523,6 +648,11 @@ export default function Dashboard() {
               label: "Amazon Revenue",
               value: fmt(m?.amazonRevenue || 0),
               sub: m && m.revenue > 0 ? fmtPct((m.amazonRevenue / m.revenue) * 100) + " of total" : null,
+            },
+            {
+              label: "TikTok Shop Revenue",
+              value: fmt(m?.tiktokRevenue || 0),
+              sub: m && m.revenue > 0 ? fmtPct((m.tiktokRevenue / m.revenue) * 100) + " of total · TW gross sales" : "TW tiktokShopsGrossSales",
             },
           ].map((card) => (
             <div key={card.label} className="card">
@@ -544,6 +674,7 @@ export default function Dashboard() {
                 { label: "Shopify (one-time)", value: shopifyDirect, color: "bg-zinc-800" },
                 { label: "Subscriptions", value: subscriptionRevenue, color: "bg-emerald-500" },
                 { label: "Amazon", value: m.amazonRevenue || 0, color: "bg-amber-500" },
+                { label: "TikTok Shop", value: m.tiktokRevenue || 0, color: "bg-rose-500" },
               ]
               return (
                 <div className="space-y-4">
@@ -613,8 +744,12 @@ export default function Dashboard() {
               value: fmt(m?.cogs || 0),
               pct: null,
               cls: "text-red-600",
-              hint: m && m.amazonCOGS > 0
-                ? `Shopify ${fmt(m.shopifyCOGS)} + Amazon ~${fmt(m.amazonCOGS)} est.`
+              hint: m
+                ? [
+                    `Shopify ${fmt(m.shopifyCOGS)}`,
+                    m.amazonCOGS > 0 ? `Amazon ~${fmt(m.amazonCOGS)} est.` : null,
+                    m.tiktokCOGS > 0 ? `TikTok ~${fmt(m.tiktokCOGS)} est.` : null,
+                  ].filter(Boolean).join(" + ")
                 : null,
             },
             {
@@ -739,6 +874,74 @@ export default function Dashboard() {
                   style={{ width: `${Math.min(100, (m.ltvCacRatio / ltvCacTarget) * 100)}%` }}
                 />
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Subscription → free gift mapping */}
+        {giftPlans.length > 0 && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-semibold text-base">Subscription → Free Gift Mapping</h2>
+            </div>
+            <p className="text-xs text-zinc-400 mb-4 leading-snug">
+              Welcome-kit gifts are valued at COGS (not retail). Seeded from Shopify gift lines + Notion SOP.
+              Rows marked TODO need Kyle&apos;s confirmation. Editable via admin <code className="text-[10px]">updateGiftMappings</code>.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-zinc-500 text-xs uppercase border-b border-zinc-200">
+                    <th className="text-left py-2 px-2 font-medium">Plan</th>
+                    <th className="text-left py-2 px-2 font-medium">Status</th>
+                    <th className="text-left py-2 px-2 font-medium">Parent SKUs</th>
+                    <th className="text-left py-2 px-2 font-medium">Welcome gifts</th>
+                    <th className="text-left py-2 px-2 font-medium">TODOs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {giftPlans.map((p) => (
+                    <tr key={p.planKey} className="border-b border-zinc-100 align-top">
+                      <td className="py-2.5 px-2">
+                        <div className="font-medium text-zinc-800">{p.planName}</div>
+                        {p.notes && <div className="text-xs text-zinc-400 mt-0.5">{p.notes}</div>}
+                      </td>
+                      <td className="py-2.5 px-2">
+                        <span
+                          className={`text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded ${
+                            p.status === "confirmed"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : p.status === "inferred"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-zinc-100 text-zinc-600"
+                          }`}
+                        >
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-2 font-mono text-xs text-zinc-600">
+                        {p.parentSkus.join(", ") || "—"}
+                      </td>
+                      <td className="py-2.5 px-2 font-mono text-xs text-zinc-600">
+                        {p.welcomeGifts.length
+                          ? p.welcomeGifts.map((g) => `${g.sku}×${g.qty}`).join(", ")
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-2 text-xs text-orange-700">
+                        {(p.todos || []).length ? (
+                          <ul className="list-disc pl-4 space-y-0.5">
+                            {p.todos.map((t, i) => (
+                              <li key={i}>{t}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-zinc-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -888,6 +1091,16 @@ export default function Dashboard() {
                       <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
                       <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
                       <td className="py-3 px-2 text-right font-medium text-zinc-500">~{fmt(m.amazonCOGS)}</td>
+                    </tr>
+                  )}
+                  {m && m.tiktokCOGS > 0 && (
+                    <tr className="border-b border-zinc-100 bg-rose-50/50">
+                      <td className="py-3 px-2 text-xs text-zinc-500 italic">
+                        TikTok Shop (estimated at Shopify COGS rate)
+                      </td>
+                      <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
+                      <td className="py-3 px-2 text-right text-zinc-400 text-xs">—</td>
+                      <td className="py-3 px-2 text-right font-medium text-zinc-500">~{fmt(m.tiktokCOGS)}</td>
                     </tr>
                   )}
                   {(cogsBreakdown.length === 0 || variants.length === 0) && (

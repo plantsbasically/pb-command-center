@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBasicAuthHeader, authHeaders } from "@/lib/auth"
-import { getCogsVariants, saveCogsVariants, getFixedCosts, saveFixedCosts, addFulfillmentInvoice, deleteFulfillmentInvoice, getFulfillmentInvoices, addAmazonFeeInvoice, deleteAmazonFeeInvoice, getAmazonFeeInvoices } from "@/lib/db"
+import { getCogsVariants, saveCogsVariants, getFixedCosts, saveFixedCosts, addFulfillmentInvoice, deleteFulfillmentInvoice, getFulfillmentInvoices, addAmazonFeeInvoice, deleteAmazonFeeInvoice, getAmazonFeeInvoices, getGiftMappings, saveGiftMappings } from "@/lib/db"
 
 function checkAuth(req: NextRequest) {
   const auth = getBasicAuthHeader(req.headers.get("authorization"))
@@ -80,6 +80,19 @@ export async function PUT(req: NextRequest) {
       await deleteAmazonFeeInvoice(data.id)
       const all = await getAmazonFeeInvoices()
       return NextResponse.json({ ok: true, all })
+    }
+
+    if (action === "getGiftMappings") {
+      const mappings = await getGiftMappings()
+      return NextResponse.json({ ok: true, data: mappings })
+    }
+
+    if (action === "updateGiftMappings") {
+      const saved = await saveGiftMappings({
+        giftSkus: data.giftSkus || [],
+        plans: data.plans || [],
+      })
+      return NextResponse.json({ ok: true, data: saved })
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 })

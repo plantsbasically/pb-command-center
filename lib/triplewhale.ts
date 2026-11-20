@@ -47,6 +47,13 @@ export interface TWProcessedData {
   amazonRevenue: number   // amazonProductItemPrice — gross product sales on Amazon
   amazonOrders: number
   amazonFees: number      // Amazon referral + FBA fees
+  // TikTok Shop (separate TW integration — not Shopify channel traffic)
+  tiktokRevenue: number   // tiktokShopsGrossSales — parallels amazonProductItemPrice
+  tiktokOrderRevenue: number // tiktokShopsSales — buyer-paid order revenue
+  tiktokOrders: number
+  tiktokFees: number      // tiktokShopsFees — marketplace fees
+  twCogs: number          // Adjusted COGS from TW (informational; we prefer local cogs_variants)
+  twCustomExpenses: number // Custom expenses excl. ad spend
   error?: string
   raw?: any
 }
@@ -57,13 +64,20 @@ function metricVal(m: any): number {
 
 export function processTWData(rawData: any): TWProcessedData {
   const emptyChannelSpend: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
-  const empty = { adSpend: 0, channelSpend: emptyChannelSpend, ltv: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0, amazonRevenue: 0, amazonOrders: 0, amazonFees: 0 }
+  const empty = {
+    adSpend: 0, channelSpend: emptyChannelSpend, ltv: 0, attributedRevenue: 0, blendedCac: 0, blendedRoas: 0,
+    amazonRevenue: 0, amazonOrders: 0, amazonFees: 0,
+    tiktokRevenue: 0, tiktokOrderRevenue: 0, tiktokOrders: 0, tiktokFees: 0,
+    twCogs: 0, twCustomExpenses: 0,
+  }
 
   if (!rawData) return { ...empty, error: "No response" }
   if (rawData.error) return { ...empty, error: rawData.error }
 
   let adSpend = 0, ltv = 0, attributedRevenue = 0, blendedCac = 0, blendedRoas = 0
   let amazonRevenue = 0, amazonOrders = 0, amazonFees = 0
+  let tiktokRevenue = 0, tiktokOrderRevenue = 0, tiktokOrders = 0, tiktokFees = 0
+  let twCogs = 0, twCustomExpenses = 0
   const ch: ChannelSpend = { facebook: 0, google: 0, microsoft: 0, tiktok: 0, snapchat: 0, pinterest: 0, amazonAds: 0 }
 
   if (Array.isArray(rawData?.metrics)) {
@@ -89,6 +103,18 @@ export function processTWData(rawData: any): TWProcessedData {
       if (id === "amazonproductitemprice" && val > 0) amazonRevenue = val
       if (id === "amazonorders" && val > 0) amazonOrders = val
       if (id === "amazonfees" && val > 0) amazonFees = val
+
+      // TikTok Shop — primary revenue metric mirrors Amazon Gross Sales
+      // (tiktokShopsGrossSales). Order revenue / fees kept for breakdowns.
+      // Source choice: TW TikTok Shop integration (NOT Shopify). Shopify
+      // source_name "3890849" is Shop Cash / Shop app, not TikTok.
+      if (id === "tiktokshopsgrosssales" && val > 0) tiktokRevenue = val
+      if (id === "tiktokshopssales" && val > 0) tiktokOrderRevenue = val
+      if (id === "tiktokshopsorders" && val > 0) tiktokOrders = val
+      if (id === "tiktokshopsfees" && val > 0) tiktokFees = val
+
+      if (id === "cogs" && val > 0) twCogs = val
+      if (id === "totalcustomnonadspends" && val > 0) twCustomExpenses = val
     }
 
     // Pass 2: broader matching for anything not caught above (first-match wins)
@@ -121,7 +147,13 @@ export function processTWData(rawData: any): TWProcessedData {
   if (adSpend === 0 && rawData.totalAdSpend) adSpend = Number(rawData.totalAdSpend) || 0
   if (attributedRevenue === 0 && rawData.revenue) attributedRevenue = Number(rawData.revenue) || 0
 
-  return { adSpend, channelSpend: ch, ltv, attributedRevenue, blendedCac, blendedRoas, amazonRevenue, amazonOrders, amazonFees, raw: rawData }
+  return {
+    adSpend, channelSpend: ch, ltv, attributedRevenue, blendedCac, blendedRoas,
+    amazonRevenue, amazonOrders, amazonFees,
+    tiktokRevenue, tiktokOrderRevenue, tiktokOrders, tiktokFees,
+    twCogs, twCustomExpenses,
+    raw: rawData,
+  }
 }
 
 export interface TWCOGSPushResult {

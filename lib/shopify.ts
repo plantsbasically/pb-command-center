@@ -178,6 +178,7 @@ interface ShopifyOrderLineItem {
   price: string
   total_discount: string
   sku: string
+  properties?: { name: string; value: string }[] | null
 }
 
 interface ShopifyCustomer {
@@ -259,15 +260,25 @@ export interface ProcessedShopifyData {
   newCustomers: number
   totalCustomers: number
   variantUnitsSold: Record<string, number>
+  giftUnitsSold: Record<string, number>   // free-gift / 100%-discounted line items only
+  giftRetailDiscounted: number            // retail value of gifts (TW treats as discounts)
   shippingCollected: number
   subscriptionRevenue: number      // revenue from Loop renewal orders in the period
   subscriptionOrderCount: number   // count of Loop renewal orders
+  /**
+   * Shopify orders that look like TikTok (source/tags). Currently expected ~0:
+   * TikTok Shop lives in Triple Whale's TikTok Shop integration, not Shopify.
+   * Kept as a cross-check so we don't double-count if a TikTok→Shopify sync appears later.
+   */
+  tiktokShopifyRevenue: number
+  tiktokShopifyOrderCount: number
   _debug: {
     totalOrdersFetched: number
     excludedOrders: number   // voided + fully-refunded, skipped entirely
     grossSubtotalSum: number // sum of subtotal_price for included orders
     netRevenue: number       // matches revenue
     sourceNames: Record<string, number>  // unique source_name values → count, for Loop detection tuning
+    giftOrderCount: number
   }
 }
 
@@ -277,6 +288,12 @@ export async function processShopifyData(
 ): Promise<ProcessedShopifyData> {
   const orders = await fetchOrders(dateStart, dateEnd)
 
+  // Lazy-load gift SKU set for classification (seed/config — no DB round-trip here)
+  const { buildGiftSkuSet, isGiftLineItem } = await import("./gift-mapping")
+  const { readJSON } = await import("./filestore")
+  const seed = readJSON<{ giftSkus: any[]; plans: any[] }>("gift-mappings.json")
+  const giftSkus = buildGiftSkuSet(seed || { giftSkus: [], plans: [] })
+
   let revenue = 0
   let ordersCount = 0
   let excludedOrders = 0
@@ -284,7 +301,12 @@ export async function processShopifyData(
   let shippingCollected = 0
   let subscriptionRevenue = 0
   let subscriptionOrderCount = 0
+  let giftRetailDiscounted = 0
+  let giftOrderCount = 0
+  let tiktokShopifyRevenue = 0
+  let tiktokShopifyOrderCount = 0
   const variantUnitsSold: Record<string, number> = {}
+  const giftUnitsSold: Record<string, number> = {}
   const sourceNames: Record<string, number> = {}
 
   // Exclude voided and fully-refunded orders entirely.
@@ -308,6 +330,17 @@ export async function processShopifyData(
     return false
   }
 
+  // TikTok Shop via Shopify sales channel — defensive detection only.
+  // Confirmed Nov 2026: numeric source 3890849 is Shop (Shop Cash), NOT TikTok.
+  // True TikTok Shop revenue comes from Triple Whale tiktokShopsGrossSales.
+  function isTikTokShopifyOrder(order: ShopifyOrder): boolean {
+    const src = (order.source_name || "").toLowerCase()
+    if (src.includes("tiktok")) return true
+    const tags = (order.tags || "").toLowerCase()
+    if (tags.includes("tiktok shop") || tags.includes("tiktok-shop")) return true
+    return false
+  }
+
   for (const order of orders) {
     // Track source_name distribution for debug (all orders, even excluded)
     const src = order.source_name || "(none)"
@@ -326,12 +359,28 @@ export async function processShopifyData(
       subscriptionOrderCount++
     }
 
+    if (isTikTokShopifyOrder(order)) {
+      tiktokShopifyRevenue += subtotal
+      tiktokShopifyOrderCount++
+    }
+
+    let orderHasGift = false
     for (const item of order.line_items) {
-      const variantKey = item.sku || item.variant_id
+      const variantKey = String(item.sku || item.variant_id || "")
       if (variantKey) {
         variantUnitsSold[variantKey] = (variantUnitsSold[variantKey] || 0) + item.quantity
       }
+
+      if (isGiftLineItem(item, giftSkus)) {
+        orderHasGift = true
+        if (variantKey) {
+          giftUnitsSold[variantKey] = (giftUnitsSold[variantKey] || 0) + item.quantity
+        }
+        const price = parseFloat(item.price) || 0
+        giftRetailDiscounted += price * (item.quantity || 1)
+      }
     }
+    if (orderHasGift) giftOrderCount++
   }
 
   const aov = ordersCount > 0 ? revenue / ordersCount : 0
@@ -367,15 +416,20 @@ export async function processShopifyData(
     newCustomers: newCustomerCount,
     totalCustomers: uniqueCustomerIds.size,
     variantUnitsSold,
+    giftUnitsSold,
+    giftRetailDiscounted,
     shippingCollected,
     subscriptionRevenue,
     subscriptionOrderCount,
+    tiktokShopifyRevenue,
+    tiktokShopifyOrderCount,
     _debug: {
       totalOrdersFetched: orders.length,
       excludedOrders,
       grossSubtotalSum,
       netRevenue: revenue,
       sourceNames,
+      giftOrderCount,
     },
   }
 }
