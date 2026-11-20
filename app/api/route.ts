@@ -127,6 +127,8 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
       giftOrderCount: shopifyData._debug.giftOrderCount,
       giftCogsAliasHits,
     },
+    // Information-only — never subtracted from revenue or used in CM / net profit.
+    discountStats: shopifyData.discountStats,
     dataSources: {
       tiktok: {
         primary: "Triple Whale summary metric tiktokShopsGrossSales (TikTok Shop Gross Sales)",
@@ -146,6 +148,13 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
         adSpend: "TW blendedAds",
         cogs: "cogs_variants × units sold (gift lines at COGS via alias map; Amazon/TikTok estimated at Shopify COGS rate)",
         note: "Does not modify Triple Whale calculations. Free-gift retail is NOT counted as revenue; gift COGS IS included.",
+      },
+      discounts: {
+        note: "Information-only display. discountStats is never subtracted from revenue or fed into CM.",
+        total: "Sum of order.total_discounts (matches Shopify Analytics Discounts directionally)",
+        freeGifts: "Allocations on gift lines / 'Free Welcome Gift' apps — excluded from promotional",
+        subscription: "Loop selling-plan autos titled SAVE 25%/30%/35% (and subscription-worded apps)",
+        promotional: "discount_code + other non-gift non-subscription markdowns on paid lines",
       },
     },
     _shopifyDebug: shopifyData._debug,
