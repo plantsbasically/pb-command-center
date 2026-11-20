@@ -168,6 +168,23 @@ export async function fetchProducts(): Promise<ShopifyVariantSummary[]> {
   return results
 }
 
+interface ShopifyDiscountAllocation {
+  amount: string
+  discount_application_index: number
+}
+
+interface ShopifyDiscountApplication {
+  type: string
+  title?: string | null
+  code?: string | null
+  description?: string | null
+  value: string
+  value_type: string
+  target_type?: string | null
+  allocation_method?: string | null
+  target_selection?: string | null
+}
+
 interface ShopifyOrderLineItem {
   id: string
   product_id: string
@@ -179,6 +196,7 @@ interface ShopifyOrderLineItem {
   total_discount: string
   sku: string
   properties?: { name: string; value: string }[] | null
+  discount_allocations?: ShopifyDiscountAllocation[] | null
 }
 
 interface ShopifyCustomer {
@@ -216,6 +234,9 @@ interface ShopifyOrder {
   source_name: string | null   // Loop renewal orders have a Loop-specific value here
   note_attributes: { name: string; value: string }[]
   total_shipping_price_set: { shop_money: { amount: string } } | null
+  /** Included on REST orders by default — no extra API calls. */
+  discount_applications?: ShopifyDiscountApplication[] | null
+  discount_codes?: { code: string; amount: string; type: string }[] | null
 }
 
 interface OrdersResponse {
@@ -272,6 +293,11 @@ export interface ProcessedShopifyData {
    */
   tiktokShopifyRevenue: number
   tiktokShopifyOrderCount: number
+  /**
+   * Information-only. Never fed into revenue / COGS / CM / net profit.
+   * See lib/discounts.ts.
+   */
+  discountStats: import("./discounts").DiscountStats
   _debug: {
     totalOrdersFetched: number
     excludedOrders: number   // voided + fully-refunded, skipped entirely
@@ -290,9 +316,25 @@ export async function processShopifyData(
 
   // Lazy-load gift SKU set for classification (seed/config — no DB round-trip here)
   const { buildGiftSkuSet, isGiftLineItem } = await import("./gift-mapping")
+  const { computeDiscountStats } = await import("./discounts")
   const { readJSON } = await import("./filestore")
   const seed = readJSON<{ giftSkus: any[]; plans: any[] }>("gift-mappings.json")
   const giftSkus = buildGiftSkuSet(seed || { giftSkus: [], plans: [] })
+  const giftLinePred = (item: {
+    sku?: string | null
+    title?: string | null
+    price?: string | number | null
+    total_discount?: string | number | null
+    quantity?: number | null
+    properties?: { name: string; value: string }[] | null
+  }) => isGiftLineItem({
+    sku: item.sku,
+    title: item.title,
+    price: item.price ?? undefined,
+    total_discount: item.total_discount ?? undefined,
+    quantity: item.quantity ?? undefined,
+    properties: item.properties,
+  }, giftSkus)
 
   let revenue = 0
   let ordersCount = 0
@@ -371,7 +413,7 @@ export async function processShopifyData(
         variantUnitsSold[variantKey] = (variantUnitsSold[variantKey] || 0) + item.quantity
       }
 
-      if (isGiftLineItem(item, giftSkus)) {
+      if (giftLinePred(item)) {
         orderHasGift = true
         if (variantKey) {
           giftUnitsSold[variantKey] = (giftUnitsSold[variantKey] || 0) + item.quantity
@@ -382,6 +424,9 @@ export async function processShopifyData(
     }
     if (orderHasGift) giftOrderCount++
   }
+
+  // Display-only discount breakdown — does NOT affect revenue/COGS/CM.
+  const discountStats = computeDiscountStats(orders, giftLinePred)
 
   const aov = ordersCount > 0 ? revenue / ordersCount : 0
 
@@ -423,6 +468,7 @@ export async function processShopifyData(
     subscriptionOrderCount,
     tiktokShopifyRevenue,
     tiktokShopifyOrderCount,
+    discountStats,
     _debug: {
       totalOrdersFetched: orders.length,
       excludedOrders,

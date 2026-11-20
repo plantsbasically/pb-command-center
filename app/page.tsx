@@ -64,6 +64,19 @@ interface GiftPlanMapping {
   todos: string[]
 }
 
+interface DiscountStats {
+  totalDiscounts: number
+  byCategory: {
+    promotional: number
+    subscription: number
+    freeGifts: number
+    other: number
+  }
+  topCodes: { code: string; amount: number; orderCount: number }[]
+  ordersWithDiscounts: number
+  allocationSum: number
+}
+
 interface FulfillmentInvoice {
   id: number
   label: string
@@ -219,6 +232,7 @@ export default function Dashboard() {
   const [subscriptionOrderCount, setSubscriptionOrderCount] = useState<number>(0)
   const [dailyContribution, setDailyContribution] = useState<DailyContribution | null>(null)
   const [giftPlans, setGiftPlans] = useState<GiftPlanMapping[]>([])
+  const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -264,6 +278,7 @@ export default function Dashboard() {
       setSubscriptionOrderCount(json.subscriptionOrderCount ?? 0)
       setDailyContribution(json.dailyContribution || null)
       setGiftPlans(json.giftMappings?.plans || [])
+      setDiscountStats(json.discountStats || null)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -626,6 +641,101 @@ export default function Dashboard() {
                   ? ` (today gift COGS ${fmt(dailyContribution.components.giftCOGS)}; gift retail ${fmt(dailyContribution.components.giftRetailDiscounted)} excluded from revenue)`
                   : ""}.
                 Command-center only — Triple Whale unchanged.
+              </div>
+
+              {/* Gift COGS callout + information-only Discounts (never in CM math) */}
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Today · gifts (COGS basis)</div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono text-zinc-300">
+                    <span>
+                      Gift COGS{" "}
+                      <span className="text-zinc-100">{fmt(dailyContribution.components.giftCOGS)}</span>
+                    </span>
+                    <span>
+                      Gift retail (excluded){" "}
+                      <span className="text-zinc-100">{fmt(dailyContribution.components.giftRetailDiscounted)}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {discountStats && (
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                        Period discounts · info only
+                      </div>
+                      <div className="text-[10px] text-zinc-500">not in CM</div>
+                    </div>
+                    <div className="text-lg font-semibold tabular-nums text-zinc-100">
+                      {fmt(discountStats.totalDiscounts)}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-zinc-400">
+                      <span>
+                        Promo{" "}
+                        <span className="text-zinc-200">{fmt(discountStats.byCategory.promotional)}</span>
+                      </span>
+                      <span>
+                        Subscription{" "}
+                        <span className="text-zinc-200">{fmt(discountStats.byCategory.subscription)}</span>
+                      </span>
+                      <span>
+                        Free gifts{" "}
+                        <span className="text-zinc-200">{fmt(discountStats.byCategory.freeGifts)}</span>
+                      </span>
+                      {discountStats.byCategory.other > 0 && (
+                        <span>
+                          Other{" "}
+                          <span className="text-zinc-200">{fmt(discountStats.byCategory.other)}</span>
+                        </span>
+                      )}
+                    </div>
+                    {discountStats.topCodes.length > 0 && (
+                      <div className="mt-3 border-t border-white/10 pt-2">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Top codes</div>
+                        <ul className="space-y-0.5 text-[11px] font-mono text-zinc-400">
+                          {discountStats.topCodes.slice(0, 5).map((c) => (
+                            <li key={c.code} className="flex justify-between gap-3">
+                              <span className="truncate text-zinc-300">{c.code}</span>
+                              <span className="shrink-0">
+                                {fmt(c.amount)} · {c.orderCount} ord
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="mt-2 text-[10px] text-zinc-600 leading-snug">
+                      Promo excludes free-gift retail. Shopify Analytics Discounts usually includes gift 100%-offs + SAVE% subscription markdowns.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Standalone discounts card when hero hasn't loaded daily data yet but period stats exist */}
+        {!dailyContribution && discountStats && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-semibold text-base">Discounts</h2>
+              <span className="text-[10px] uppercase tracking-wide text-zinc-400">Info only · not in CM</span>
+            </div>
+            <div className="metric-big">{fmt(discountStats.totalDiscounts)}</div>
+            <div className="metric-label mt-1">Total discounts (period)</div>
+            <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <div className="font-semibold">{fmt(discountStats.byCategory.promotional)}</div>
+                <div className="text-xs text-zinc-400">Promotional</div>
+              </div>
+              <div>
+                <div className="font-semibold">{fmt(discountStats.byCategory.subscription)}</div>
+                <div className="text-xs text-zinc-400">Subscription</div>
+              </div>
+              <div>
+                <div className="font-semibold">{fmt(discountStats.byCategory.freeGifts)}</div>
+                <div className="text-xs text-zinc-400">Free gifts</div>
               </div>
             </div>
           </div>
