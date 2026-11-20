@@ -16,13 +16,149 @@ function checkAuth(req: NextRequest) {
   return null
 }
 
+function todayISO(): string {
+  return new Date().toISOString().split("T")[0]
+}
+
+async function buildMetricsForRange(dateStart: string, dateEnd: string) {
+  const { computeMetrics } = await import("@/lib/calculations")
+  const { processShopifyData } = await import("@/lib/shopify")
+  const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
+  const { getCogsVariants, getFixedCosts, getFulfillmentInvoices, getGiftMappings } = await import("@/lib/db")
+  const { fetchLoopData } = await import("@/lib/loop")
+  const { buildGiftCogsAliasMap, resolveUnitCogs } = await import("@/lib/gift-mapping")
+
+  const [cogsVariants, fixedCostItems, fulfillmentInvoices, giftMappings, shopifyData, twRaw, loopData] = await Promise.all([
+    getCogsVariants(),
+    getFixedCosts(),
+    getFulfillmentInvoices(),
+    getGiftMappings(),
+    processShopifyData(dateStart, dateEnd),
+    fetchTWData(dateStart, dateEnd),
+    fetchLoopData(),
+  ])
+
+  function prorateInvoices(invoices: typeof fulfillmentInvoices): number {
+    const rangeStart = new Date(dateStart)
+    const rangeEnd = new Date(dateEnd)
+    let total = 0
+    for (const inv of invoices) {
+      const invStart = new Date(inv.periodStart)
+      const invEnd = new Date(inv.periodEnd)
+      const overlapStart = new Date(Math.max(rangeStart.getTime(), invStart.getTime()))
+      const overlapEnd = new Date(Math.min(rangeEnd.getTime(), invEnd.getTime()))
+      if (overlapStart > overlapEnd) continue
+      const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1
+      const invoiceDays = Math.round((invEnd.getTime() - invStart.getTime()) / 86400000) + 1
+      total += inv.amount * (overlapDays / invoiceDays)
+    }
+    return total
+  }
+
+  const fulfillmentInvoiceTotal = prorateInvoices(fulfillmentInvoices)
+
+  const cogsMap = new Map<string, number>()
+  for (const v of cogsVariants) {
+    cogsMap.set(v.variantKey, v.totalCost || 0)
+  }
+  const giftAliasMap = buildGiftCogsAliasMap(giftMappings)
+
+  // Real COGS: every sold unit (including free gifts) at cogs_variants cost.
+  // Gift SKUs with $0 configured COGS fall back to cogsAlias (e.g. JJ33CP-FREE → JJ33CP-SS).
+  let totalCOGS = 0
+  let giftCOGS = 0
+  const giftCogsAliasHits: Record<string, string> = {}
+  for (const [variantKey, units] of Object.entries(shopifyData.variantUnitsSold)) {
+    const { unitCogs, usedAlias } = resolveUnitCogs(variantKey, cogsMap, giftAliasMap)
+    const line = units * unitCogs
+    totalCOGS += line
+    if (shopifyData.giftUnitsSold[variantKey]) {
+      giftCOGS += (shopifyData.giftUnitsSold[variantKey] || 0) * unitCogs
+      if (usedAlias) giftCogsAliasHits[variantKey] = usedAlias
+    }
+  }
+
+  const twData = processTWData(twRaw)
+  const amazonFeeInvoiceTotal = twData.amazonFees
+  const tiktokFees = twData.tiktokFees
+
+  const metrics = computeMetrics({
+    shopifyRevenue: shopifyData.revenue,
+    amazonRevenue: twData.amazonRevenue,
+    tiktokRevenue: twData.tiktokRevenue,
+    shopifyOrdersCount: shopifyData.ordersCount,
+    shopifyAOV: shopifyData.aov,
+    shopifyNewCustomers: shopifyData.newCustomers,
+    shopifyTotalCustomers: shopifyData.totalCustomers,
+    shopifyCogsByVariantSold: totalCOGS,
+    shippingCollected: shopifyData.shippingCollected,
+    fulfillmentInvoiceTotal,
+    amazonFeeInvoiceTotal,
+    tiktokFees,
+    adSpend: twData.adSpend,
+    twLtv: twData.ltv,
+    fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
+    dateRange: { start: dateStart, end: dateEnd },
+  })
+
+  const cogsBreakdown = cogsVariants.map((v) => ({
+    variantKey: v.variantKey,
+    variantName: v.variantName,
+    totalCost: v.totalCost,
+    unitsSold: shopifyData.variantUnitsSold[v.variantKey] || 0,
+    totalCOGS: (shopifyData.variantUnitsSold[v.variantKey] || 0) * v.totalCost,
+  }))
+
+  return {
+    metrics,
+    cogsBreakdown,
+    variants: cogsVariants,
+    fixedCosts: fixedCostItems,
+    fulfillmentInvoices,
+    twData,
+    loopData,
+    subscriptionRevenue: shopifyData.subscriptionRevenue,
+    subscriptionOrderCount: shopifyData.subscriptionOrderCount,
+    giftMappings,
+    giftStats: {
+      giftUnitsSold: shopifyData.giftUnitsSold,
+      giftRetailDiscounted: shopifyData.giftRetailDiscounted,
+      giftCOGS,
+      giftOrderCount: shopifyData._debug.giftOrderCount,
+      giftCogsAliasHits,
+    },
+    dataSources: {
+      tiktok: {
+        primary: "Triple Whale summary metric tiktokShopsGrossSales (TikTok Shop Gross Sales)",
+        parallels: "amazonProductItemPrice for Amazon",
+        shopifyCrossCheck: {
+          revenue: shopifyData.tiktokShopifyRevenue,
+          orders: shopifyData.tiktokShopifyOrderCount,
+          note: "Expected ~0. Shopify source 3890849 is Shop Cash, not TikTok. TikTok Shop is a separate TW integration.",
+        },
+        twOrderRevenue: twData.tiktokOrderRevenue,
+        twOrders: twData.tiktokOrders,
+        twFees: twData.tiktokFees,
+      },
+      contributionMargin: {
+        formula: "revenue − adSpend − realCOGS",
+        revenue: "Shopify subtotal + TW Amazon gross sales + TW TikTok Shop gross sales",
+        adSpend: "TW blendedAds",
+        cogs: "cogs_variants × units sold (gift lines at COGS via alias map; Amazon/TikTok estimated at Shopify COGS rate)",
+        note: "Does not modify Triple Whale calculations. Free-gift retail is NOT counted as revenue; gift COGS IS included.",
+      },
+    },
+    _shopifyDebug: shopifyData._debug,
+  }
+}
+
 export async function GET(req: NextRequest) {
   const authError = checkAuth(req)
   if (authError) return authError
 
   try {
     const { searchParams } = new URL(req.url)
-    const dateStart = searchParams.get("start") || new Date().toISOString().split("T")[0]
+    const dateStart = searchParams.get("start") || todayISO()
     const dateEnd = searchParams.get("end") || dateStart
     const bust = searchParams.get("bust") === "1"
 
@@ -32,94 +168,36 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data)
     }
 
-    const { computeMetrics } = await import("@/lib/calculations")
-    const { processShopifyData } = await import("@/lib/shopify")
-    const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
-    const { getCogsVariants, getFixedCosts, getFulfillmentInvoices } = await import("@/lib/db")
-    const { fetchLoopData } = await import("@/lib/loop")
+    const today = todayISO()
+    const needsSeparateDaily = !(dateStart === today && dateEnd === today)
 
-    // All fetches run in parallel
-    const [cogsVariants, fixedCostItems, fulfillmentInvoices, shopifyData, twRaw, loopData] = await Promise.all([
-      getCogsVariants(),
-      getFixedCosts(),
-      getFulfillmentInvoices(),
-      processShopifyData(dateStart, dateEnd),
-      fetchTWData(dateStart, dateEnd),
-      fetchLoopData(),
+    const [rangeData, dailyData] = await Promise.all([
+      buildMetricsForRange(dateStart, dateEnd),
+      needsSeparateDaily ? buildMetricsForRange(today, today) : Promise.resolve(null),
     ])
 
-    // Prorate invoices that overlap with the selected date range.
-    // e.g. "last 30 days" against a monthly invoice gives the proportional slice.
-    function prorateInvoices(invoices: typeof fulfillmentInvoices): number {
-      const rangeStart = new Date(dateStart)
-      const rangeEnd = new Date(dateEnd)
-      let total = 0
-      for (const inv of invoices) {
-        const invStart = new Date(inv.periodStart)
-        const invEnd = new Date(inv.periodEnd)
-        const overlapStart = new Date(Math.max(rangeStart.getTime(), invStart.getTime()))
-        const overlapEnd = new Date(Math.min(rangeEnd.getTime(), invEnd.getTime()))
-        if (overlapStart > overlapEnd) continue
-        const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1
-        const invoiceDays = Math.round((invEnd.getTime() - invStart.getTime()) / 86400000) + 1
-        total += inv.amount * (overlapDays / invoiceDays)
-      }
-      return total
-    }
-
-    const fulfillmentInvoiceTotal = prorateInvoices(fulfillmentInvoices)
-
-    const cogsMap = new Map<string, number>()
-    for (const v of cogsVariants) {
-      cogsMap.set(v.variantKey, v.totalCost || 0)
-    }
-
-    let totalCOGS = 0
-    for (const [variantKey, units] of Object.entries(shopifyData.variantUnitsSold)) {
-      const unitCOGS = cogsMap.get(variantKey) || cogsMap.get(variantKey.replace(/-\d+$/, "")) || 0
-      totalCOGS += units * unitCOGS
-    }
-
-    const twData = processTWData(twRaw)
-    // Amazon fees come directly from Triple Whale — no manual invoicing needed
-    const amazonFeeInvoiceTotal = twData.amazonFees
-
-    const metrics = computeMetrics({
-      shopifyRevenue: shopifyData.revenue,
-      amazonRevenue: twData.amazonRevenue,
-      shopifyOrdersCount: shopifyData.ordersCount,
-      shopifyAOV: shopifyData.aov,
-      shopifyNewCustomers: shopifyData.newCustomers,
-      shopifyTotalCustomers: shopifyData.totalCustomers,
-      shopifyCogsByVariantSold: totalCOGS,
-      shippingCollected: shopifyData.shippingCollected,
-      fulfillmentInvoiceTotal,
-      amazonFeeInvoiceTotal,
-      adSpend: twData.adSpend,
-      twLtv: twData.ltv,
-      fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
-      dateRange: { start: dateStart, end: dateEnd },
-    })
-
-    const cogsBreakdown = cogsVariants.map((v) => ({
-      variantKey: v.variantKey,
-      variantName: v.variantName,
-      totalCost: v.totalCost,
-      unitsSold: shopifyData.variantUnitsSold[v.variantKey] || 0,
-      totalCOGS: (shopifyData.variantUnitsSold[v.variantKey] || 0) * v.totalCost,
-    }))
-
+    const dailySource = dailyData || rangeData
     const responseData = {
-      metrics,
-      cogsBreakdown,
-      variants: cogsVariants,
-      fixedCosts: fixedCostItems,
-      fulfillmentInvoices,
-      twData,
-      loopData,
-      subscriptionRevenue: shopifyData.subscriptionRevenue,
-      subscriptionOrderCount: shopifyData.subscriptionOrderCount,
-      _shopifyDebug: shopifyData._debug,
+      ...rangeData,
+      dailyContribution: {
+        date: today,
+        contributionMargin: dailySource.metrics.trueContributionMargin,
+        contributionMarginPct: dailySource.metrics.trueContributionMarginPct,
+        revenue: dailySource.metrics.revenue,
+        adSpend: dailySource.metrics.adSpend,
+        cogs: dailySource.metrics.cogs,
+        components: {
+          shopifyRevenue: dailySource.metrics.shopifyRevenue,
+          amazonRevenue: dailySource.metrics.amazonRevenue,
+          tiktokRevenue: dailySource.metrics.tiktokRevenue,
+          shopifyCOGS: dailySource.metrics.shopifyCOGS,
+          amazonCOGS: dailySource.metrics.amazonCOGS,
+          tiktokCOGS: dailySource.metrics.tiktokCOGS,
+          giftCOGS: dailySource.giftStats.giftCOGS,
+          giftRetailDiscounted: dailySource.giftStats.giftRetailDiscounted,
+        },
+        formula: "Contribution margin = revenue − ad spend − real COGS (gifts at COGS, not retail)",
+      },
     }
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() })

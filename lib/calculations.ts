@@ -13,21 +13,31 @@ export interface FixedCostLineItem {
 
 export interface MetricsResult {
   dateRange: { start: string; end: string }
-  revenue: number         // blended total (Shopify + Amazon)
+  revenue: number         // blended total (Shopify + Amazon + TikTok Shop)
   shopifyRevenue: number
   amazonRevenue: number
-  cogs: number            // blended COGS (Shopify actual + Amazon estimated)
-  shopifyCOGS: number     // exact, from variant unit costs
+  tiktokRevenue: number
+  cogs: number            // blended COGS (Shopify actual + Amazon/TikTok estimated)
+  shopifyCOGS: number     // exact, from variant unit costs (gifts at COGS)
   amazonCOGS: number      // estimated: amazonRevenue × shopify COGS rate
+  tiktokCOGS: number      // estimated: tiktokRevenue × shopify COGS rate
   grossProfit: number
   grossMarginPct: number
   shippingCollected: number      // what customers paid for shipping on Shopify orders
   fulfillmentInvoiceTotal: number // 3PL invoice total prorated for the date range
   netFulfillmentCost: number     // fulfillmentInvoiceTotal - shippingCollected (0 if no invoices)
   amazonFeeInvoiceTotal: number  // Amazon platform fees prorated for the date range
+  tiktokFees: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
+  /**
+   * True contribution margin (command-center definition):
+   *   revenue − ad spend − real COGS
+   * Free gifts valued at COGS (not retail). Does not change Triple Whale.
+   */
+  trueContributionMargin: number
+  trueContributionMarginPct: number
   fixedCosts: number
   netProfit: number
   netMarginPct: number
@@ -47,14 +57,16 @@ export function computeCOGSTotal(variant: COGSVariant): number {
 export function computeMetrics(params: {
   shopifyRevenue: number
   amazonRevenue: number
+  tiktokRevenue: number
   shopifyOrdersCount: number
   shopifyAOV: number
   shopifyNewCustomers: number
   shopifyTotalCustomers: number
-  shopifyCogsByVariantSold: number  // exact COGS from Shopify variant unit costs
+  shopifyCogsByVariantSold: number  // exact COGS from Shopify variant unit costs (gifts at COGS)
   shippingCollected: number         // from Shopify orders
   fulfillmentInvoiceTotal: number   // prorated 3PL invoice for the date range
   amazonFeeInvoiceTotal: number     // prorated Amazon platform fees for the date range
+  tiktokFees: number
   adSpend: number
   twLtv: number           // TW all-time avg LTV — not date-range dependent
   fixedCostsMonthly: number[]
@@ -63,6 +75,7 @@ export function computeMetrics(params: {
   const {
     shopifyRevenue,
     amazonRevenue,
+    tiktokRevenue,
     shopifyOrdersCount,
     shopifyAOV,
     shopifyNewCustomers,
@@ -71,20 +84,21 @@ export function computeMetrics(params: {
     shippingCollected,
     fulfillmentInvoiceTotal,
     amazonFeeInvoiceTotal,
+    tiktokFees,
     adSpend,
     twLtv,
     fixedCostsMonthly,
     dateRange,
   } = params
 
-  const revenue = shopifyRevenue + amazonRevenue
+  const revenue = shopifyRevenue + amazonRevenue + tiktokRevenue
 
-  // Amazon COGS: estimated by applying the Shopify blended COGS rate to Amazon revenue.
-  // We don't have SKU-level Amazon unit data, so this is the best available estimate.
+  // Marketplace COGS: apply Shopify blended COGS rate (best available without SKU-level data).
   const shopifyCogsRate = shopifyRevenue > 0 ? shopifyCogsByVariantSold / shopifyRevenue : 0
   const amazonCOGS = amazonRevenue * shopifyCogsRate
+  const tiktokCOGS = tiktokRevenue * shopifyCogsRate
   const shopifyCOGS = shopifyCogsByVariantSold
-  const cogs = shopifyCOGS + amazonCOGS
+  const cogs = shopifyCOGS + amazonCOGS + tiktokCOGS
 
   const grossProfit = revenue - cogs
   const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0
@@ -105,8 +119,13 @@ export function computeMetrics(params: {
     ? fulfillmentInvoiceTotal - shippingCollected
     : 0
 
-  const contributionProfit = grossProfit - adSpend - netFulfillmentCost - amazonFeeInvoiceTotal
+  // Existing waterfall contribution (unchanged methodology + TikTok fees)
+  const contributionProfit = grossProfit - adSpend - netFulfillmentCost - amazonFeeInvoiceTotal - tiktokFees
   const contributionMarginPct = revenue > 0 ? (contributionProfit / revenue) * 100 : 0
+
+  // Hero metric: revenue − ad spend − real COGS (gifts already in shopifyCOGS at cost)
+  const trueContributionMargin = revenue - adSpend - cogs
+  const trueContributionMarginPct = revenue > 0 ? (trueContributionMargin / revenue) * 100 : 0
 
   const netProfit = contributionProfit - fixedCosts
   const netMarginPct = revenue > 0 ? (netProfit / revenue) * 100 : 0
@@ -123,18 +142,23 @@ export function computeMetrics(params: {
     revenue,
     shopifyRevenue,
     amazonRevenue,
+    tiktokRevenue,
     cogs,
     shopifyCOGS,
     amazonCOGS,
+    tiktokCOGS,
     grossProfit,
     grossMarginPct,
     shippingCollected,
     fulfillmentInvoiceTotal,
     netFulfillmentCost,
     amazonFeeInvoiceTotal,
+    tiktokFees,
     adSpend,
     contributionProfit,
     contributionMarginPct,
+    trueContributionMargin,
+    trueContributionMarginPct,
     fixedCosts,
     netProfit,
     netMarginPct,

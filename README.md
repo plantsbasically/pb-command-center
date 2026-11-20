@@ -2,6 +2,8 @@
 
 Plants Basically Profit Command Center
 
+See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, and subscription → free-gift mapping.
+
 ## Shopify auth
 
 Prefer Dev Dashboard app client credentials (PB Agents API):

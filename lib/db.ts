@@ -61,6 +61,15 @@ async function ensureSchema() {
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  // Single-row JSON document for subscription plan → free-gift mappings.
+  // Editable later via admin API; seeded from data/gift-mappings.json.
+  await sql`
+    CREATE TABLE IF NOT EXISTS subscription_gift_mappings (
+      id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      payload    JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
   schemaReady = true
 }
 
@@ -244,4 +253,41 @@ export async function deleteAmazonFeeInvoice(id: number): Promise<void> {
   const sql = getSql()
   await ensureSchema()
   await sql`DELETE FROM amazon_fee_invoices WHERE id = ${id}`
+}
+
+export async function getGiftMappings(): Promise<import("./gift-mapping").GiftMappingsData> {
+  const sql = getSql()
+  await ensureSchema()
+  const rows = await sql`SELECT payload FROM subscription_gift_mappings WHERE id = 1`
+  if (rows.length === 0) {
+    const { readJSON } = await import("./filestore")
+    const seed = readJSON<import("./gift-mapping").GiftMappingsData & { _meta?: unknown }>("gift-mappings.json")
+    const payload = {
+      giftSkus: seed?.giftSkus || [],
+      plans: seed?.plans || [],
+    }
+    await saveGiftMappings(payload)
+    return payload
+  }
+  const payload = rows[0].payload as import("./gift-mapping").GiftMappingsData
+  return {
+    giftSkus: payload.giftSkus || [],
+    plans: payload.plans || [],
+  }
+}
+
+export async function saveGiftMappings(
+  data: import("./gift-mapping").GiftMappingsData
+): Promise<import("./gift-mapping").GiftMappingsData> {
+  const sql = getSql()
+  await ensureSchema()
+  const payload = { giftSkus: data.giftSkus || [], plans: data.plans || [] }
+  // postgres JSONValue is stricter than our domain types — serialize via JSON round-trip
+  const jsonPayload = JSON.parse(JSON.stringify(payload)) as Parameters<typeof sql.json>[0]
+  await sql`
+    INSERT INTO subscription_gift_mappings (id, payload, updated_at)
+    VALUES (1, ${sql.json(jsonPayload)}, NOW())
+    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
+  `
+  return payload
 }
