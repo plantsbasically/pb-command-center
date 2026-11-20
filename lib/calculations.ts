@@ -28,12 +28,14 @@ export interface MetricsResult {
   netFulfillmentCost: number     // fulfillmentInvoiceTotal - shippingCollected (0 if no invoices)
   amazonFeeInvoiceTotal: number  // Amazon platform fees prorated for the date range
   tiktokFees: number
+  /** Shopify payment gateway fees (TW) — not Amazon/TikTok marketplace fees */
+  gatewayFees: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
   /**
    * True contribution margin (command-center definition):
-   *   revenue − ad spend − real COGS
+   *   revenue − ad spend − real COGS − payment gateway fees
    * Free gifts valued at COGS (not retail). Does not change Triple Whale.
    */
   trueContributionMargin: number
@@ -67,6 +69,7 @@ export function computeMetrics(params: {
   fulfillmentInvoiceTotal: number   // prorated 3PL invoice for the date range
   amazonFeeInvoiceTotal: number     // prorated Amazon platform fees for the date range
   tiktokFees: number
+  gatewayFees: number               // Shopify payment gateway fees (TW); not Amazon/TikTok
   adSpend: number
   twLtv: number           // TW all-time avg LTV — not date-range dependent
   fixedCostsMonthly: number[]
@@ -85,6 +88,7 @@ export function computeMetrics(params: {
     fulfillmentInvoiceTotal,
     amazonFeeInvoiceTotal,
     tiktokFees,
+    gatewayFees,
     adSpend,
     twLtv,
     fixedCostsMonthly,
@@ -119,12 +123,13 @@ export function computeMetrics(params: {
     ? fulfillmentInvoiceTotal - shippingCollected
     : 0
 
-  // Existing waterfall contribution (unchanged methodology + TikTok fees)
-  const contributionProfit = grossProfit - adSpend - netFulfillmentCost - amazonFeeInvoiceTotal - tiktokFees
+  // Waterfall contribution + marketplace fees + Shopify payment gateway fees
+  const contributionProfit =
+    grossProfit - adSpend - netFulfillmentCost - amazonFeeInvoiceTotal - tiktokFees - gatewayFees
   const contributionMarginPct = revenue > 0 ? (contributionProfit / revenue) * 100 : 0
 
-  // Hero metric: revenue − ad spend − real COGS (gifts already in shopifyCOGS at cost)
-  const trueContributionMargin = revenue - adSpend - cogs
+  // Hero metric: revenue − ad spend − real COGS − gateway fees (gifts already in shopifyCOGS at cost)
+  const trueContributionMargin = revenue - adSpend - cogs - gatewayFees
   const trueContributionMarginPct = revenue > 0 ? (trueContributionMargin / revenue) * 100 : 0
 
   const netProfit = contributionProfit - fixedCosts
@@ -154,6 +159,7 @@ export function computeMetrics(params: {
     netFulfillmentCost,
     amazonFeeInvoiceTotal,
     tiktokFees,
+    gatewayFees,
     adSpend,
     contributionProfit,
     contributionMarginPct,

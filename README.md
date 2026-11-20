@@ -2,7 +2,7 @@
 
 Plants Basically Profit Command Center
 
-See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, and subscription → free-gift mapping.
+See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, payment gateway fees, and subscription → free-gift mapping.
 
 ## Shopify auth
 

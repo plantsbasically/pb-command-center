@@ -15,7 +15,7 @@ All profit logic lives in this app. **Triple Whale is read-only** — we never c
 ## Contribution margin (hero)
 
 ```
-trueContributionMargin = revenue − adSpend − realCOGS
+trueContributionMargin = revenue − adSpend − realCOGS − gatewayFees
 ```
 
 | Component | Source |
@@ -23,10 +23,30 @@ trueContributionMargin = revenue − adSpend − realCOGS
 | **Revenue** | Shopify order `subtotal_price` (gifts already $0 after discount) + TW Amazon gross sales + TW TikTok Shop gross sales |
 | **Ad spend** | TW `blendedAds` |
 | **Real COGS** | `cogs_variants` × units sold on Shopify line items, including free-gift lines; gift SKUs with $0 COGS resolve via `cogsAlias` (e.g. `JJ33CP-FREE` → `JJ33CP-SS`). Amazon/TikTok COGS estimated at Shopify rate. |
+| **Payment gateway fees** | TW `orders_table.payment_gateway_costs` (Shopify platform only, daily via SQL API). Fallback: summary-page `payment_gateway_costs`. See below. |
 
 **Gift distortion fix:** TW treats gift retail as discounts. Here gift retail is **not** revenue; gift **COGS is included**. Digital gifts (app / ebook) stay $0 COGS.
 
-The existing waterfall `contributionProfit` (after fulfillment net + marketplace fees) is unchanged aside from including TikTok fees when present.
+Waterfall `contributionProfit` also subtracts fulfillment net, Amazon fees, TikTok Shop fees, and Shopify payment gateway fees. Amazon/TikTok marketplace fees are **not** double-counted into gateway fees (SQL filters `platform = 'Shopify'`).
+
+## Payment gateway fees (Shopify)
+
+| Choice | Detail |
+| --- | --- |
+| **Primary** | TW SQL `POST /api/v2/orcabase/api/sql` — `sum(payment_gateway_costs)` from `orders_table` grouped by `event_date` (shop-local / America/Los_Angeles), `platform = Shopify` |
+| **Fallback** | TW summary-page metric `payment_gateway_costs` (“Payment Gateway Costs”) |
+| **API fields** | `gatewayFees`, `gatewayFeesDaily`, `gatewayFeesSource` (`tw_sql` \| `tw_summary` \| `none`) |
+| **Shopify Payments** | Imported **actuals** from Shopify into TW |
+| **PayPal / other gateways** | **Estimates** from TW Cost Settings → Gateway Costs (percentage + flat fee) |
+| **Not included** | Currency conversion fees; Amazon FBA/referral fees; TikTok Shop fees |
+
+TW does **not** expose a public Cost Settings read API for gateway rates. Confirm PayPal / other non-Shopify-Payments rates in the Triple Whale UI (Cost Settings → Gateway Costs).
+
+Implementation: `lib/gateway-fees.ts` (isolated module to ease merges with fulfillment work).
+
+## TODO — `daily_metrics` table
+
+`daily_metrics` does **not** exist yet in Postgres. When added, include a **`gateway_fees`** numeric column (daily Shopify payment gateway costs from TW) alongside other persisted daily P&L fields.
 
 ## Subscription → free gift mapping
 
