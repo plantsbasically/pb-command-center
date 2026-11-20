@@ -282,9 +282,11 @@ export async function saveGiftMappings(
   const sql = getSql()
   await ensureSchema()
   const payload = { giftSkus: data.giftSkus || [], plans: data.plans || [] }
+  // postgres JSONValue is stricter than our domain types — serialize via JSON round-trip
+  const jsonPayload = JSON.parse(JSON.stringify(payload)) as Parameters<typeof sql.json>[0]
   await sql`
     INSERT INTO subscription_gift_mappings (id, payload, updated_at)
-    VALUES (1, ${sql.json(payload)}, NOW())
+    VALUES (1, ${sql.json(jsonPayload)}, NOW())
     ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
   `
   return payload
