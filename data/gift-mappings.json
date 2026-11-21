@@ -6,7 +6,8 @@
       "Notion SOP: 3d1150cd-3926-8147-8fba-c8bba55e48b2",
       "Notion CS Guide: 3d1150cd-3926-8150-b2e4-f5f6d6dc16a3"
     ],
-    "cogsRule": "Gift line items are valued at cogs_variants.total_cost for the gift SKU (or cogsAlias), never at retail/discounted retail."
+    "cogsRule": "Gift line items are valued at cogs_variants.total_cost for the gift SKU (or cogsAlias), never at retail/discounted retail.",
+    "displayQtyNote": "plans[].welcomeGifts[].qty is display-only on the dashboard mapping card. Gift COGS uses Shopify giftUnitsSold × unit COGS and ignores this qty. Live DB row subscription_gift_mappings id=1 overrides this seed after first load — update via admin updateGiftMappings (or delete the row to re-seed)."
   },
   "giftSkus": [
     {
@@ -83,7 +84,7 @@
       "bundleParentValues": ["juicy-joint"],
       "sellingPlanHint": "Deliver every 4 WEEK",
       "welcomeGifts": [
-        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 3 },
         { "sku": "JJ33PTP", "qty": 1 },
         { "sku": "JJ33PT-APP", "qty": 1 }
       ],
@@ -129,7 +130,7 @@
       "sellingPlanHint": "Deliver every 12 WEEK",
       "welcomeGifts": [
         { "sku": "JJ33EBOOK", "qty": 1 },
-        { "sku": "JJ33CP-SS", "qty": 1 },
+        { "sku": "JJ33CP-SS", "qty": 3 },
         { "sku": "JJ33PTP", "qty": 1 },
         { "sku": "JJ33PT-APP", "qty": 1 }
       ],

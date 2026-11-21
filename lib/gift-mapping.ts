@@ -20,6 +20,11 @@ export interface GiftSkuDef {
   notes?: string
 }
 
+/**
+ * Display quantity for the Subscription → Free Gift Mapping card.
+ * Does NOT feed gift COGS — contribution margin uses Shopify line
+ * `giftUnitsSold × unitCogs` (see lib/build-metrics.ts).
+ */
 export interface GiftQty {
   sku: string
   qty: number
