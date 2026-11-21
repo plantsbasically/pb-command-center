@@ -411,6 +411,53 @@ function emptySegment(segment: SegmentSecondOrderStats["segment"]): SegmentSecon
   }
 }
 
+/** Chunk progress callback — closes over windowStart only (never fetch result bindings). */
+export function makeSecondOrderChunkProgressHandler(ctx: {
+  asOfDate: string
+  lookbackDays: number
+  windowStart: string
+  startedAt: string
+  writeProgress: (partial: Partial<SecondOrderResult> & { progress: SecondOrderProgress }) => Promise<void>
+}) {
+  return async (info: {
+    chunkStart: string
+    chunkEnd: string
+    chunkIndex: number
+    chunkCount: number
+    ordersInChunk: number
+    ordersTotal: number
+    createdAtMin?: string
+    createdAtMax?: string
+  }) => {
+    console.log(
+      `[second-order] chunk ${info.chunkIndex}/${info.chunkCount} ` +
+        `${info.chunkStart}→${info.chunkEnd}: +${info.ordersInChunk} (total ${info.ordersTotal})` +
+        (info.createdAtMin && info.createdAtMax
+          ? ` · filter ${info.createdAtMin} → ${info.createdAtMax}`
+          : "")
+    )
+    await ctx.writeProgress({
+      asOfDate: ctx.asOfDate,
+      lookbackDays: ctx.lookbackDays,
+      windowStart: ctx.windowStart,
+      windowEnd: ctx.asOfDate,
+      coveredFrom: ctx.windowStart,
+      coveredTo: info.chunkEnd,
+      ordersFetched: info.ordersTotal,
+      progress: {
+        status: "running",
+        chunksDone: info.chunkIndex,
+        chunksTotal: info.chunkCount,
+        ordersFetched: info.ordersTotal,
+        coveredFrom: ctx.windowStart,
+        coveredTo: info.chunkEnd,
+        message: `${info.chunkIndex}/${info.chunkCount} chunks · ${info.ordersTotal} orders`,
+        startedAt: ctx.startedAt,
+      },
+    })
+  }
+}
+
 /**
  * Run the full windowed Shopify scan and write complete stats.
  * Holds the advisory lock for the duration.
@@ -477,34 +524,18 @@ export async function runSecondOrderRefreshJob(opts?: {
       },
     })
 
+    // Progress must not close over the destructured fetch result (TDZ).
+    const onChunk = makeSecondOrderChunkProgressHandler({
+      asOfDate,
+      lookbackDays,
+      windowStart,
+      startedAt,
+      writeProgress,
+    })
     const { orders, coveredFrom, coveredTo } = await fetchOrdersWindowed(windowStart, asOfDate, {
       chunkDays,
       pageDelayMs,
-      onChunk: async (info) => {
-        console.log(
-          `[second-order] chunk ${info.chunkIndex}/${info.chunkCount} ` +
-            `${info.chunkStart}→${info.chunkEnd}: +${info.ordersInChunk} (total ${info.ordersTotal})`
-        )
-        await writeProgress({
-          asOfDate,
-          lookbackDays,
-          windowStart,
-          windowEnd: asOfDate,
-          coveredFrom,
-          coveredTo: info.chunkEnd,
-          ordersFetched: info.ordersTotal,
-          progress: {
-            status: "running",
-            chunksDone: info.chunkIndex,
-            chunksTotal: info.chunkCount,
-            ordersFetched: info.ordersTotal,
-            coveredFrom,
-            coveredTo: info.chunkEnd,
-            message: `${info.chunkIndex}/${info.chunkCount} chunks · ${info.ordersTotal} orders`,
-            startedAt,
-          },
-        })
-      },
+      onChunk,
     })
 
     console.log(
