@@ -35,8 +35,9 @@ export interface MetricsResult {
   contributionMarginPct: number
   /**
    * True contribution margin (command-center definition):
-   *   revenue − ad spend − real COGS − payment gateway fees
-   * Free gifts valued at COGS (not retail). Does not change Triple Whale.
+   *   revenue − ad spend − real COGS − net fulfillment − payment gateway fees
+   * Free gifts valued at COGS (not retail). Net fulfillment = 3PL − shipping collected.
+   * Does not change Triple Whale.
    */
   trueContributionMargin: number
   trueContributionMarginPct: number
@@ -128,8 +129,9 @@ export function computeMetrics(params: {
     grossProfit - adSpend - netFulfillmentCost - amazonFeeInvoiceTotal - tiktokFees - gatewayFees
   const contributionMarginPct = revenue > 0 ? (contributionProfit / revenue) * 100 : 0
 
-  // Hero metric: revenue − ad spend − real COGS − gateway fees (gifts already in shopifyCOGS at cost)
-  const trueContributionMargin = revenue - adSpend - cogs - gatewayFees
+  // Hero metric: revenue − ad spend − real COGS − net fulfillment − gateway fees
+  // (gifts already in shopifyCOGS at cost; fulfillment from ShipFusion + manual backup)
+  const trueContributionMargin = revenue - adSpend - cogs - netFulfillmentCost - gatewayFees
   const trueContributionMarginPct = revenue > 0 ? (trueContributionMargin / revenue) * 100 : 0
 
   const netProfit = contributionProfit - fixedCosts

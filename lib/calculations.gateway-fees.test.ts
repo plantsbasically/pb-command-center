@@ -1,6 +1,6 @@
 /**
- * Asserts contribution margin changes only by the gatewayFees term.
- * Amazon / TikTok fee fields stay independent (no double-count).
+ * Asserts contribution margin changes only by the gatewayFees term,
+ * and that gateway + net fulfillment both subtract from CM independently.
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
@@ -73,13 +73,53 @@ describe("computeMetrics gatewayFees term", () => {
     assert.equal(withAll.contributionProfit, expectedContribution)
     assert.equal(
       withAll.trueContributionMargin,
-      withAll.revenue - withAll.adSpend - withAll.cogs - 200,
+      withAll.revenue - withAll.adSpend - withAll.cogs - withAll.netFulfillmentCost - 200,
     )
   })
 
-  it("zero gatewayFees matches prior formula (revenue − ads − cogs)", () => {
-    const m = computeMetrics({ ...baseParams, gatewayFees: 0 })
+  it("zero gatewayFees + zero fulfillment matches revenue − ads − cogs", () => {
+    const m = computeMetrics({ ...baseParams, gatewayFees: 0, fulfillmentInvoiceTotal: 0 })
     assert.equal(m.trueContributionMargin, m.revenue - m.adSpend - m.cogs)
+  })
+})
+
+describe("computeMetrics gatewayFees + net fulfillment together", () => {
+  it("CM subtracts both terms; changing one does not affect the other", () => {
+    const gatewayFees = 200
+    const fulfillmentInvoiceTotal = 1500 // net = 1500 − 500 shipping = 1000
+    const both = computeMetrics({ ...baseParams, gatewayFees, fulfillmentInvoiceTotal })
+    const onlyGateway = computeMetrics({ ...baseParams, gatewayFees, fulfillmentInvoiceTotal: 0 })
+    const onlyFulfill = computeMetrics({ ...baseParams, gatewayFees: 0, fulfillmentInvoiceTotal })
+    const neither = computeMetrics({ ...baseParams, gatewayFees: 0, fulfillmentInvoiceTotal: 0 })
+
+    assert.equal(both.netFulfillmentCost, 1000)
+    assert.equal(both.gatewayFees, 200)
+
+    assert.equal(
+      both.trueContributionMargin,
+      both.revenue - both.adSpend - both.cogs - both.netFulfillmentCost - both.gatewayFees,
+    )
+    assert.equal(
+      neither.trueContributionMargin - both.trueContributionMargin,
+      1000 + 200,
+    )
+    assert.equal(
+      onlyGateway.trueContributionMargin - both.trueContributionMargin,
+      1000,
+    )
+    assert.equal(
+      onlyFulfill.trueContributionMargin - both.trueContributionMargin,
+      200,
+    )
+    assert.equal(
+      both.contributionProfit,
+      both.grossProfit -
+        both.adSpend -
+        both.netFulfillmentCost -
+        both.amazonFeeInvoiceTotal -
+        both.tiktokFees -
+        both.gatewayFees,
+    )
   })
 })
 
