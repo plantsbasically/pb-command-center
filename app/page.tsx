@@ -47,7 +47,12 @@ interface FulfillmentBreakdown {
 type FulfillmentSource = "shipfusion" | "manual" | "mixed"
 
 interface DailyContribution {
-  date: string
+  /** @deprecated use dateStart/dateEnd/label — kept for older payloads */
+  date?: string
+  dateStart?: string
+  dateEnd?: string
+  label?: string
+  isTodayOnly?: boolean
   contributionMargin: number
   contributionMarginPct: number
   contributionProfit?: number
@@ -71,6 +76,12 @@ interface DailyContribution {
     gatewayFees?: number
   }
   formula: string
+  todaySecondary?: {
+    date: string
+    contributionMargin: number
+    contributionMarginPct: number
+    revenue: number
+  } | null
 }
 
 interface GiftPlanMapping {
@@ -648,7 +659,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Daily Contribution Margin — hero */}
+        {/* Contribution Margin — hero (selected range totals) */}
         {dailyContribution && (
           <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-900 via-zinc-800 to-emerald-950 text-white px-6 py-8 md:px-10 md:py-10 shadow-sm">
             <div
@@ -660,7 +671,10 @@ export default function Dashboard() {
             />
             <div className="relative">
               <div className="text-xs uppercase tracking-[0.2em] text-zinc-400 mb-3">
-                Daily contribution margin · {dailyContribution.date}
+                Contribution margin ·{" "}
+                {dailyContribution.label ||
+                  dailyContribution.date ||
+                  `${dateStart} – ${dateEnd}`}
               </div>
               <div
                 className={`text-4xl md:text-6xl font-bold tracking-tight tabular-nums ${
@@ -670,8 +684,20 @@ export default function Dashboard() {
                 <CountUp value={dailyContribution.contributionMargin} />
               </div>
               <div className="mt-2 text-sm text-zinc-400">
-                {fmtPct(dailyContribution.contributionMarginPct)} of today&apos;s revenue
+                {fmtPct(dailyContribution.contributionMarginPct)} of{" "}
+                {dailyContribution.isTodayOnly ? "today" : "range"} revenue
               </div>
+              {dailyContribution.todaySecondary && (
+                <div className="mt-2 text-xs text-zinc-500 font-mono">
+                  Today ({dailyContribution.todaySecondary.date}):{" "}
+                  <span className="text-zinc-300">
+                    {fmt(dailyContribution.todaySecondary.contributionMargin)}
+                  </span>
+                  {" · "}
+                  {fmtPct(dailyContribution.todaySecondary.contributionMarginPct)} of{" "}
+                  {fmt(dailyContribution.todaySecondary.revenue)}
+                </div>
+              )}
               <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-400 font-mono">
                 <span>
                   Revenue <span className="text-zinc-200">{fmt(dailyContribution.revenue)}</span>
@@ -704,7 +730,7 @@ export default function Dashboard() {
               <div className="mt-3 text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
                 {dailyContribution.formula}. Free gifts valued at COGS
                 {dailyContribution.components.giftCOGS > 0
-                  ? ` (today gift COGS ${fmt(dailyContribution.components.giftCOGS)}; gift retail ${fmt(dailyContribution.components.giftRetailDiscounted)} excluded from revenue)`
+                  ? ` (gift COGS ${fmt(dailyContribution.components.giftCOGS)}; gift retail ${fmt(dailyContribution.components.giftRetailDiscounted)} excluded from revenue)`
                   : ""}.
                 {dailyContribution.fulfillmentSource
                   ? ` Fulfillment source: ${dailyContribution.fulfillmentSource}.`
@@ -715,7 +741,9 @@ export default function Dashboard() {
               {/* Gift COGS callout + information-only Discounts (never in CM math) */}
               <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Today · gifts (COGS basis)</div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">
+                    {dailyContribution.isTodayOnly ? "Today" : "Range"} · gifts (COGS basis)
+                  </div>
                   <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono text-zinc-300">
                     <span>
                       Gift COGS{" "}
