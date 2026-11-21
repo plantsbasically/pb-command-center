@@ -154,6 +154,7 @@ describe("CM changes only through fulfillment term", () => {
     shippingCollected: 200,
     amazonFeeInvoiceTotal: 300,
     tiktokFees: 10,
+    gatewayFees: 0,
     adSpend: 4000,
     twLtv: 85,
     fixedCostsMonthly: [5000],
@@ -169,6 +170,7 @@ describe("CM changes only through fulfillment term", () => {
     assert.equal(low.adSpend, high.adSpend)
     assert.equal(low.amazonFeeInvoiceTotal, high.amazonFeeInvoiceTotal)
     assert.equal(low.tiktokFees, high.tiktokFees)
+    assert.equal(low.gatewayFees, high.gatewayFees)
     assert.equal(low.shopifyRevenue, high.shopifyRevenue)
     assert.equal(low.grossProfit, high.grossProfit)
 
@@ -182,16 +184,16 @@ describe("CM changes only through fulfillment term", () => {
     assert.equal(high.netFulfillmentCost, netHigh)
     assert.equal(
       low.trueContributionMargin,
-      low.revenue - low.adSpend - low.cogs - low.netFulfillmentCost
+      low.revenue - low.adSpend - low.cogs - low.netFulfillmentCost - low.gatewayFees
     )
     assert.equal(
       high.contributionProfit,
-      high.grossProfit - high.adSpend - high.netFulfillmentCost - high.amazonFeeInvoiceTotal - high.tiktokFees
+      high.grossProfit - high.adSpend - high.netFulfillmentCost - high.amazonFeeInvoiceTotal - high.tiktokFees - high.gatewayFees
     )
   })
 
   it("zero fulfillment leaves net fulfillment at 0 (no shipping credit alone)", () => {
-    const m = computeMetrics({ ...base, fulfillmentInvoiceTotal: 0 })
+    const m = computeMetrics({ ...base, fulfillmentInvoiceTotal: 0, gatewayFees: 0 })
     assert.equal(m.netFulfillmentCost, 0)
     assert.equal(m.trueContributionMargin, m.revenue - m.adSpend - m.cogs)
   })

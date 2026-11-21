@@ -17,6 +17,7 @@ interface Metrics {
   netFulfillmentCost: number
   amazonFeeInvoiceTotal: number
   tiktokFees: number
+  gatewayFees: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
@@ -53,6 +54,7 @@ interface DailyContribution {
   revenue: number
   adSpend: number
   cogs: number
+  gatewayFees?: number
   netFulfillmentCost?: number
   fulfillmentInvoiceTotal?: number
   fulfillmentSource?: FulfillmentSource
@@ -66,6 +68,7 @@ interface DailyContribution {
     tiktokCOGS: number
     giftCOGS: number
     giftRetailDiscounted: number
+    gatewayFees?: number
   }
   formula: string
 }
@@ -249,6 +252,8 @@ export default function Dashboard() {
   const [dailyContribution, setDailyContribution] = useState<DailyContribution | null>(null)
   const [giftPlans, setGiftPlans] = useState<GiftPlanMapping[]>([])
   const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
+  const [gatewayFees, setGatewayFees] = useState(0)
+  const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -299,6 +304,8 @@ export default function Dashboard() {
       setDailyContribution(json.dailyContribution || null)
       setGiftPlans(json.giftMappings?.plans || [])
       setDiscountStats(json.discountStats || null)
+      setGatewayFees(Number(json.gatewayFees ?? json.metrics?.gatewayFees ?? 0) || 0)
+      setGatewayFeesSource(json.gatewayFeesSource || "none")
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -659,6 +666,17 @@ export default function Dashboard() {
                   Net fulfillment{" "}
                   <span className="text-zinc-200">{fmt(dailyContribution.netFulfillmentCost || 0)}</span>
                 </span>
+                <span className="text-zinc-600">−</span>
+                <span>
+                  Payment gateway fees{" "}
+                  <span className="text-zinc-200">
+                    {fmt(
+                      dailyContribution.gatewayFees ??
+                        dailyContribution.components.gatewayFees ??
+                        0,
+                    )}
+                  </span>
+                </span>
               </div>
               <div className="mt-3 text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
                 {dailyContribution.formula}. Free gifts valued at COGS
@@ -875,7 +893,7 @@ export default function Dashboard() {
         })()}
 
         {/* Row 1 — P&L Waterfall */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {[
             {
               label: "COGS",
@@ -916,11 +934,23 @@ export default function Dashboard() {
               hint: "FBA handling fees · sourced from Triple Whale",
             },
             {
+              label: "Payment gateway fees",
+              value: m && (m.gatewayFees ?? gatewayFees) > 0 ? fmt(m.gatewayFees ?? gatewayFees) : "—",
+              pct: null,
+              cls: m && (m.gatewayFees ?? gatewayFees) > 0 ? "text-orange-600" : "text-zinc-400",
+              hint:
+                gatewayFeesSource === "tw_sql"
+                  ? "Shopify only · TW orders_table.payment_gateway_costs"
+                  : gatewayFeesSource === "tw_summary"
+                    ? "Shopify blended · TW summary payment_gateway_costs"
+                    : "Triple Whale payment gateway costs (Shopify only)",
+            },
+            {
               label: "Contribution Profit",
               value: fmt(m?.contributionProfit || 0),
               pct: fmtPct(m?.contributionMarginPct || 0),
               cls: m ? (m.contributionProfit >= 0 ? "positive" : "negative") : "",
-              hint: "after product cost, fulfillment, Amazon fees & ad spend",
+              hint: "after product cost, fulfillment, marketplace fees, gateway fees & ad spend",
             },
             {
               label: "Net Profit",

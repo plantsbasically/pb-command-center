@@ -21,6 +21,7 @@ describe("computeMetrics ignores discounts", () => {
       fulfillmentInvoiceTotal: 0,
       amazonFeeInvoiceTotal: 0,
       tiktokFees: 0,
+      gatewayFees: 0,
       adSpend: 20000,
       twLtv: 85,
       fixedCostsMonthly: [30000],
@@ -56,7 +57,8 @@ describe("computeMetrics ignores discounts", () => {
     assert.equal(
       responseA.metrics.trueContributionMargin,
       params.shopifyRevenue + params.amazonRevenue + params.tiktokRevenue - params.adSpend -
-        (params.shopifyCogsByVariantSold /* + marketplace cogs 0 */)
+        (params.shopifyCogsByVariantSold /* + marketplace cogs 0 */) -
+        responseA.metrics.netFulfillmentCost - params.gatewayFees
     )
     // discountStats must not be a computeMetrics parameter
     assert.equal(
