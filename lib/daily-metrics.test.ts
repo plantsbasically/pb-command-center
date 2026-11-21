@@ -137,7 +137,8 @@ describe("sumDailyMetricsRows", () => {
     // ROAS from summed attributed / ad spend
     assert.equal(summed.twData.blendedRoas, 27000 / 8000)
 
-    // CAC from summed ad spend / new customers
+    // Provisional CAC uses Shopify-attributable spend (excludes Amazon Ads + TikTok ads)
+    // facebook 5000 + google 3000 = 8000; no amazon/tiktok in these fixtures → still 8000/100
     assert.equal(summed.metrics.cac, 8000 / 100)
 
     // Channel spend summed

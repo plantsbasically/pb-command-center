@@ -1,5 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
+import { TARGET_LTV_CAC, LTV_CAC_WARNING } from "@/lib/ltv-cac"
 
 interface Metrics {
   revenue: number
@@ -161,6 +162,27 @@ interface LoopData {
   subscriberMRR: number
 }
 
+interface LtvCacMeta {
+  ltv: number
+  ltvSource: "loop_subscriber" | "triple_whale_fallback"
+  blendedLtv: number | null
+  segments: { segment: string; customers: number; revenuePerCustomer: number }[]
+  snapshotDate: string | null
+  cac: number
+  cacAdSpend: number
+  totalAdSpend: number
+  excludedAdSpend: number
+  newCustomers: number
+  newCustomersSource: string
+  cacAdSpendLabel: string
+  ratio: number
+  target: number
+  warningThreshold: number
+  explainTooltip: string
+  ltvHint: string
+  cacHint: string
+}
+
 /** Pacific (America/Los_Angeles) calendar presets — never UTC toISOString day math. */
 function pacificYmd(d: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -277,6 +299,8 @@ export default function Dashboard() {
   const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
   const [gatewayFees, setGatewayFees] = useState(0)
   const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
+  const [ltvCac, setLtvCac] = useState<LtvCacMeta | null>(null)
+  const [ltvCacTipOpen, setLtvCacTipOpen] = useState(false)
   const [dateStart, setDateStart] = useState(() => startOfMonthYmd(pacificYmd()))
   const [dateEnd, setDateEnd] = useState(() => pacificYmd())
   const [fulfillmentCoverage, setFulfillmentCoverage] = useState<{
@@ -340,6 +364,7 @@ export default function Dashboard() {
       setDiscountStats(json.discountStats || null)
       setGatewayFees(Number(json.gatewayFees ?? json.metrics?.gatewayFees ?? 0) || 0)
       setGatewayFeesSource(json.gatewayFeesSource || "none")
+      setLtvCac(json.ltvCac || null)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -574,8 +599,15 @@ export default function Dashboard() {
   }
 
   const m = metrics
-  const ltvCacTarget = 3.0
-  const ltvCacStatus = m ? (m.ltvCacRatio >= ltvCacTarget ? "positive" : m.ltvCacRatio >= 1.5 ? "warning" : "negative") : ""
+  const ltvCacTarget = TARGET_LTV_CAC
+  const ltvCacWarning = LTV_CAC_WARNING
+  const ltvCacStatus = m
+    ? m.ltvCacRatio >= ltvCacTarget
+      ? "positive"
+      : m.ltvCacRatio >= ltvCacWarning
+        ? "warning"
+        : "negative"
+    : ""
 
   if (!m && loading && !error) {
     return (
@@ -1140,23 +1172,79 @@ export default function Dashboard() {
 
         {/* Row 2 — Acquisition & Customer Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: "CAC", value: m ? fmt(m.cac) : "—", cls: "", hint: null },
-            { label: "LTV", value: m ? fmt(m.ltv) : "—", cls: "", hint: "Triple Whale all-time avg — historical lifetime spend per customer, not based on selected date range" },
-            { label: "AOV", value: m ? fmt(m.aov) : "—", cls: "", hint: null },
-            {
-              label: "LTV:CAC",
-              value: m ? m.ltvCacRatio.toFixed(2) + (isFinite(m.ltvCacRatio) ? "×" : "") : "—",
-              cls: ltvCacStatus,
-              hint: `${ltvCacTarget.toFixed(1)}× target`,
-            },
-          ].map((metric) => (
-            <div key={metric.label} className="card">
-              <div className={`metric-big ${metric.cls}`}>{metric.value}</div>
-              <div className="metric-label mt-1">{metric.label}</div>
-              {metric.hint && <div className="text-xs text-zinc-400 mt-1 leading-snug">{metric.hint}</div>}
+          <div className="card">
+            <div className="metric-big">{m ? fmt(m.cac) : "—"}</div>
+            <div className="metric-label mt-1">CAC</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">
+              {ltvCac?.cacHint ||
+                "Shopify-attributable ad spend ÷ Shopify new customers"}
             </div>
-          ))}
+          </div>
+          <div className="card">
+            <div className="metric-big">{m ? fmt(m.ltv) : "—"}</div>
+            <div className="metric-label mt-1">LTV</div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">
+              {ltvCac?.ltvHint ||
+                "Loop subscriber LTV when available; otherwise Triple Whale fallback"}
+            </div>
+            {ltvCac?.blendedLtv != null && ltvCac.ltvSource === "loop_subscriber" && (
+              <div className="text-[11px] text-zinc-500 mt-1.5 font-mono leading-snug">
+                Blended all-customer {fmt(ltvCac.blendedLtv)}
+                {ltvCac.segments.length > 0 && (
+                  <>
+                    {" · "}
+                    {ltvCac.segments
+                      .map(
+                        (s) =>
+                          `${s.segment.replace(/Subscriber$/, "").replace(/Non/, "Non-")}=${fmt(s.revenuePerCustomer)}`
+                      )
+                      .join(", ")}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <div className="metric-big">{m ? fmt(m.aov) : "—"}</div>
+            <div className="metric-label mt-1">AOV</div>
+          </div>
+          <div className="card relative group">
+            <div className={`metric-big ${ltvCacStatus}`}>
+              {m ? m.ltvCacRatio.toFixed(2) + (isFinite(m.ltvCacRatio) ? "×" : "") : "—"}
+            </div>
+            <div className="metric-label mt-1 flex items-center gap-1.5">
+              LTV:CAC
+              <button
+                type="button"
+                className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-zinc-300 text-[10px] text-zinc-500 hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                aria-label="What is LTV:CAC?"
+                aria-expanded={ltvCacTipOpen}
+                title={ltvCac?.explainTooltip || "LTV ÷ CAC"}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setLtvCacTipOpen((o) => !o)
+                }}
+                onBlur={() => setLtvCacTipOpen(false)}
+              >
+                ?
+              </button>
+            </div>
+            <div className="text-xs text-zinc-400 mt-1 leading-snug">
+              {ltvCacTarget.toFixed(1)}× target
+              {m ? ` · now ${m.ltvCacRatio.toFixed(2)}×` : ""}
+              {` · <${ltvCacWarning.toFixed(1)}× warning`}
+            </div>
+            {ltvCac?.explainTooltip && (
+              <div
+                role="tooltip"
+                className={`absolute z-20 left-0 right-0 top-full mt-2 rounded-lg border border-zinc-200 bg-white p-3 text-xs text-zinc-600 leading-relaxed shadow-lg ${
+                  ltvCacTipOpen ? "block" : "hidden group-hover:block"
+                }`}
+              >
+                {ltvCac.explainTooltip}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Row 3 — Orders & Customers */}

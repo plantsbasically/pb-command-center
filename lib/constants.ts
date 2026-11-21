@@ -9,7 +9,7 @@ export const DEFAULT_DATE_RANGE = {
   end: todayPacific(),
 }
 
-export const TARGET_LTV_CAC = 3.0
+export { TARGET_LTV_CAC, LTV_CAC_WARNING } from "./ltv-cac"
 
 /** Re-export Pacific presets for server callers; client page uses pacificDatePresets directly. */
 export function getDefaultPacificPresets() {

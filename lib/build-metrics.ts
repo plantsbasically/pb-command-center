@@ -15,6 +15,7 @@ import type { LoopData } from "./loop"
 
 export interface BuiltMetrics {
   metrics: ReturnType<typeof computeMetrics>
+  ltvCac?: import("./ltv-cac").LtvCacResult
   cogsBreakdown: {
     variantKey: string
     variantName: string
@@ -146,6 +147,15 @@ export async function buildMetricsForRange(
     dateRange: { start: dateStart, end: dateEnd },
   })
 
+  // LTV:CAC overlay (does not change CM). Loop subscriber LTV + Shopify-attributable CAC.
+  const { applyLtvCacToMetrics } = await import("./ltv-cac-apply")
+  const { metrics: metricsWithLtv, ltvCac } = await applyLtvCacToMetrics(metrics, {
+    totalAdSpend: twData.adSpend,
+    channelSpend: twData.channelSpend,
+    shopifyNewCustomers: shopifyData.newCustomers,
+    twLtvFallback: twData.ltv,
+  })
+
   const cogsBreakdown = cogsVariants.map((v) => ({
     variantKey: v.variantKey,
     variantName: v.variantName,
@@ -155,7 +165,8 @@ export async function buildMetricsForRange(
   }))
 
   return {
-    metrics,
+    metrics: metricsWithLtv,
+    ltvCac,
     cogsBreakdown,
     variants: cogsVariants,
     fixedCosts: fixedCostItems,

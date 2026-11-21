@@ -309,7 +309,13 @@ export function sumDailyMetricsRows(
     revenue > 0 ? (tot.contributionProfit / revenue) * 100 : 0
   const netMarginPct = revenue > 0 ? (tot.netProfit / revenue) * 100 : 0
   const aov = tot.ordersCount > 0 ? tot.shopifyRevenue / tot.ordersCount : 0
-  const cac = tot.newCustomers > 0 ? tot.adSpend / tot.newCustomers : 0
+  // Provisional CAC/LTV — overwritten by applyLtvCac after Loop snapshot load.
+  // Keep Shopify-attributable spend basis even in the provisional numbers.
+  const provisionalCacSpend = Math.max(
+    0,
+    tot.adSpend - tot.adSpendAmazon - tot.adSpendTiktok
+  )
+  const cac = tot.newCustomers > 0 ? provisionalCacSpend / tot.newCustomers : 0
   const ltvCacRatio = cac > 0 ? tot.ltv / cac : 0
   const blendedRoas =
     tot.adSpend > 0 ? tot.attributedRevenue / tot.adSpend : 0
@@ -789,6 +795,7 @@ export async function getMetricsFromDailyStore(
   opts?: { bust?: boolean }
 ): Promise<{
   summed: SummedDailyMetrics
+  ltvCac: import("./ltv-cac").LtvCacResult
   staticMeta: {
     variants: BuiltMetrics["variants"]
     fixedCosts: BuiltMetrics["fixedCosts"]
@@ -849,8 +856,31 @@ export async function getMetricsFromDailyStore(
     }
   }
 
+  // Overlay Loop LTV + Shopify-attributable CAC on the summed range metrics.
+  const { applyLtvCacToMetricsSync } = await import("./ltv-cac-apply")
+  const { computeLoopLtv } = await import("./ltv-cac")
+  let loopLtv = null
+  try {
+    const { getLatestLoopLtvSnapshot } = await import("./loop-metrics")
+    const snap = await getLatestLoopLtvSnapshot()
+    if (snap?.rows?.length) loopLtv = computeLoopLtv(snap.rows, snap.snapshotDate)
+  } catch {
+    /* ignore */
+  }
+  const { metrics: metricsWithLtv, ltvCac } = applyLtvCacToMetricsSync(summed.metrics, {
+    totalAdSpend: summed.metrics.adSpend,
+    channelSpend: summed.twData.channelSpend,
+    shopifyNewCustomers: summed.metrics.newCustomers,
+    twLtvFallback: summed.metrics.ltv,
+    loopLtv,
+  })
+  summed.metrics = metricsWithLtv
+  summed.twData.ltv = metricsWithLtv.ltv
+  summed.twData.blendedCac = metricsWithLtv.cac
+
   return {
     summed,
+    ltvCac,
     staticMeta: { variants, fixedCosts, fulfillmentInvoices, giftMappings, loopData },
     dailyContributionRow,
   }
