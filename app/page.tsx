@@ -1,5 +1,13 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
+import {
+  todayPacific,
+  todayDateRange,
+  yesterdayDateRange,
+  addDaysISO,
+  startOfPacificMonth,
+  previousPacificMonth,
+} from "@/lib/dates"
 
 interface Metrics {
   revenue: number
@@ -161,54 +169,31 @@ interface LoopData {
   subscriberMRR: number
 }
 
-/** Pacific (America/Los_Angeles) calendar presets — never UTC toISOString day math. */
-function pacificYmd(d: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d)
-}
-
-function addDaysYmd(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d + days))
-  return dt.toISOString().slice(0, 10)
-}
-
-function startOfMonthYmd(iso: string): string {
-  return `${iso.slice(0, 7)}-01`
-}
-
-function previousMonthRange(iso: string): { start: string; end: string } {
-  const thisStart = startOfMonthYmd(iso)
-  const lastDayPrev = addDaysYmd(thisStart, -1)
-  return { start: startOfMonthYmd(lastDayPrev), end: lastDayPrev }
-}
-
+/** Pacific calendar presets — order: Today, Yesterday, then rolling / MTD. */
 const PRESETS: Record<string, () => { start: string; end: string }> = {
+  Today: () => todayDateRange(),
+  Yesterday: () => yesterdayDateRange(),
   "Last 7d": () => {
-    const end = pacificYmd()
-    return { start: addDaysYmd(end, -7), end }
+    const end = todayPacific()
+    return { start: addDaysISO(end, -7), end }
   },
   "Last 30d": () => {
-    const end = pacificYmd()
-    return { start: addDaysYmd(end, -30), end }
+    const end = todayPacific()
+    return { start: addDaysISO(end, -30), end }
   },
   "Last 90d": () => {
-    const end = pacificYmd()
-    return { start: addDaysYmd(end, -90), end }
+    const end = todayPacific()
+    return { start: addDaysISO(end, -90), end }
   },
   "Last 180d": () => {
-    const end = pacificYmd()
-    return { start: addDaysYmd(end, -180), end }
+    const end = todayPacific()
+    return { start: addDaysISO(end, -180), end }
   },
   "Month to Date": () => {
-    const end = pacificYmd()
-    return { start: startOfMonthYmd(end), end }
+    const end = todayPacific()
+    return { start: startOfPacificMonth(end), end }
   },
-  "Last Month": () => previousMonthRange(pacificYmd()),
+  "Last Month": () => previousPacificMonth(),
 }
 
 function fmt(n: number, currency = true): string {
@@ -277,8 +262,8 @@ export default function Dashboard() {
   const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
   const [gatewayFees, setGatewayFees] = useState(0)
   const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
-  const [dateStart, setDateStart] = useState(() => startOfMonthYmd(pacificYmd()))
-  const [dateEnd, setDateEnd] = useState(() => pacificYmd())
+  const [dateStart, setDateStart] = useState(() => startOfPacificMonth())
+  const [dateEnd, setDateEnd] = useState(() => todayPacific())
   const [fulfillmentCoverage, setFulfillmentCoverage] = useState<{
     source: string | null
     gross: number
@@ -609,20 +594,23 @@ export default function Dashboard() {
             <p className="text-zinc-500 text-sm">Plants Basically — P&L & LTV:CAC</p>
           </div>
           <div className="flex gap-2 flex-wrap items-center">
-            {Object.keys(PRESETS).map((label) => (
+            {Object.keys(PRESETS).map((label) => {
+              const preset = PRESETS[label as keyof typeof PRESETS]()
+              const active = dateStart === preset.start && dateEnd === preset.end
+              return (
               <button
                 key={label}
                 onClick={() => applyPreset(label as keyof typeof PRESETS)}
                 className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                  (label === "Month to Date" && dateStart === PRESETS["Month to Date"]().start) ||
-                  (label === "Last 30d" && dateStart === PRESETS["Last 30d"]().start)
+                  active
                     ? "bg-zinc-900 text-white border-zinc-900"
                     : "bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50"
                 }`}
               >
                 {label}
               </button>
-            ))}
+              )
+            })}
             <label className="flex items-center gap-1 text-xs text-zinc-500">
               <input
                 type="date"
@@ -685,7 +673,12 @@ export default function Dashboard() {
               </div>
               <div className="mt-2 text-sm text-zinc-400">
                 {fmtPct(dailyContribution.contributionMarginPct)} of{" "}
-                {dailyContribution.isTodayOnly ? "today" : "range"} revenue
+                {dailyContribution.isTodayOnly
+                  ? "today"
+                  : dailyContribution.label === "Yesterday"
+                    ? "yesterday"
+                    : "range"}{" "}
+                revenue
               </div>
               {dailyContribution.todaySecondary && (
                 <div className="mt-2 text-xs text-zinc-500 font-mono">
@@ -742,7 +735,12 @@ export default function Dashboard() {
               <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">
-                    {dailyContribution.isTodayOnly ? "Today" : "Range"} · gifts (COGS basis)
+                    {dailyContribution.isTodayOnly
+                      ? "Today"
+                      : dailyContribution.label === "Yesterday"
+                        ? "Yesterday"
+                        : "Range"}{" "}
+                    · gifts (COGS basis)
                   </div>
                   <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono text-zinc-300">
                     <span>

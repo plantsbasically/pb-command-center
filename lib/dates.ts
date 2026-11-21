@@ -33,6 +33,18 @@ export function yesterdayPacific(now: Date = new Date()): string {
   return addDaysISO(todayPacific(now), -1)
 }
 
+/** Dashboard preset: Pacific today as a single-day range. */
+export function todayDateRange(now: Date = new Date()): { start: string; end: string } {
+  const day = todayPacific(now)
+  return { start: day, end: day }
+}
+
+/** Dashboard preset: Pacific yesterday as a single-day range. */
+export function yesterdayDateRange(now: Date = new Date()): { start: string; end: string } {
+  const day = yesterdayPacific(now)
+  return { start: day, end: day }
+}
+
 /** Current hour (0–23) in America/Los_Angeles. */
 export function pacificHour(now: Date = new Date()): number {
   const hourStr = new Intl.DateTimeFormat("en-US", {

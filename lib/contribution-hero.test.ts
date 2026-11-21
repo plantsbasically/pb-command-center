@@ -16,9 +16,15 @@ describe("formatContributionRangeLabel", () => {
     assert.equal(r.isTodayOnly, true)
   })
 
-  it("labels a single non-today day without Today", () => {
+  it("labels yesterday-only as Yesterday", () => {
     const r = formatContributionRangeLabel("2026-11-19", "2026-11-19", "2026-11-20")
-    assert.equal(r.label, "Nov 19")
+    assert.equal(r.label, "Yesterday")
+    assert.equal(r.isTodayOnly, false)
+  })
+
+  it("labels an older single day as the short date", () => {
+    const r = formatContributionRangeLabel("2026-11-10", "2026-11-10", "2026-11-20")
+    assert.equal(r.label, "Nov 10")
     assert.equal(r.isTodayOnly, false)
   })
 
