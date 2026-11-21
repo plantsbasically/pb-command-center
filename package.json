@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test lib/discounts.test.ts lib/calculations.cm-isolation.test.ts lib/calculations.gateway-fees.test.ts lib/shipfusion.test.ts lib/fulfillment.test.ts lib/loop-metrics.test.ts lib/dates.test.ts lib/daily-metrics.test.ts lib/contribution-hero.test.ts lib/ltv-cac.test.ts"
+    "test": "node --experimental-strip-types --test lib/discounts.test.ts lib/calculations.cm-isolation.test.ts lib/calculations.gateway-fees.test.ts lib/shipfusion.test.ts lib/fulfillment.test.ts lib/loop-metrics.test.ts lib/dates.test.ts lib/daily-metrics.test.ts lib/contribution-hero.test.ts lib/ltv-cac.test.ts lib/cohort-projection.test.ts lib/second-order.test.ts"
   },
   "dependencies": {
     "next": "16.2.6",

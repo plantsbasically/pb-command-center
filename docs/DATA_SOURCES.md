@@ -150,6 +150,26 @@ Schema is created idempotently in `lib/db.ts` `ensureSchema` under a Postgres ad
 
 API response includes `ltvCac` (`explainTooltip`, `ltvHint`, `cacHint`, snapshot date, segments). See `lib/ltv-cac.ts`.
 
+### Cohort retention + projection (dashboard)
+
+`GET /api` also returns `cohortProjection` built from the latest `loop_cohort_retention` monthly snapshot (`lib/cohort-projection.ts` / `lib/cohort-dashboard.ts`):
+
+- Observed cells: `day_30` / `day_60` / `day_90` (and order metrics when present).
+- Projected cells: `day_120`…`day_360` (and missing later days on young cohorts), styled dashed in the UI.
+- Decay: average `day60/day30` and `day90/day60` across mature cohorts; forward months multiply by that blended step. Active ≈ size × retention%; revenue ≈ active × Loop subscriber $/customer.
+- Does **not** change CM.
+
+### Time to second order (dashboard)
+
+Cached in `second_order_stats` (not computed on page load):
+
+| Piece | Detail |
+| --- | --- |
+| Refresh | `POST/GET /api/second-order/refresh` — Bearer `SECOND_ORDER_CRON_SECRET` or `DAILY_METRICS_CRON_SECRET` |
+| Source | Shopify orders via existing PB Agents client credentials (`fetchOrdersThrottled`, 500ms page delay + 429 retry) |
+| Window | First orders in last N Pacific days (`SHOPIFY_SECOND_ORDER_LOOKBACK_DAYS`, default 180) |
+| Output | Histogram buckets, cumulative repeat %, median days, 30/60/90 rates; subscriber vs one-time split via source/tags heuristics |
+
 ### Example ingest payload
 
 ```json

@@ -191,6 +191,58 @@ interface LtvCacMeta {
   cacHint: string
 }
 
+interface CohortCell {
+  metric: string
+  valuePct: number
+  active: number
+  revenue: number
+  projected: boolean
+}
+
+interface CohortProjectionData {
+  snapshotDate: string | null
+  revenuePerCustomer: number
+  decay: {
+    day30to60: number
+    day60to90: number
+    monthlyStep: number
+    matureCohortCount: number
+    methodSummary: string
+  }
+  dayColumns: string[]
+  rows: {
+    cohortStart: string
+    cohortSize: number
+    maturity: "mature" | "partial" | "young"
+    cells: CohortCell[]
+  }[]
+  forwardTotals: { metric: string; active: number; revenue: number }[]
+}
+
+interface SecondOrderSegment {
+  segment: string
+  firstOrderCustomers: number
+  repeaters: number
+  medianDaysToSecond: number | null
+  repeatRate30: number
+  repeatRate60: number
+  repeatRate90: number
+  buckets: { key: string; count: number; pctOfRepeaters: number }[]
+  cumulative: { day: number; repeatRatePct: number }[]
+}
+
+interface SecondOrderData {
+  asOfDate: string
+  lookbackDays: number
+  windowStart: string
+  windowEnd: string
+  splitNote: string
+  methodSummary: string
+  all: SecondOrderSegment
+  subscriber: SecondOrderSegment
+  oneTime: SecondOrderSegment
+}
+
 /** Pacific calendar presets — order: Today, Yesterday, then rolling / MTD. */
 const PRESETS: Record<string, () => { start: string; end: string }> = {
   Today: () => todayDateRange(),
@@ -286,6 +338,10 @@ export default function Dashboard() {
   const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
   const [ltvCac, setLtvCac] = useState<LtvCacMeta | null>(null)
   const [ltvCacTipOpen, setLtvCacTipOpen] = useState(false)
+  const [cohortProjection, setCohortProjection] = useState<CohortProjectionData | null>(null)
+  const [cohortTipOpen, setCohortTipOpen] = useState(false)
+  const [secondOrder, setSecondOrder] = useState<SecondOrderData | null>(null)
+  const [secondOrderSeg, setSecondOrderSeg] = useState<"all" | "subscriber" | "oneTime">("all")
   const [dateStart, setDateStart] = useState(() => startOfPacificMonth())
   const [dateEnd, setDateEnd] = useState(() => todayPacific())
   const [fulfillmentCoverage, setFulfillmentCoverage] = useState<{
@@ -350,6 +406,8 @@ export default function Dashboard() {
       setGatewayFees(Number(json.gatewayFees ?? json.metrics?.gatewayFees ?? 0) || 0)
       setGatewayFeesSource(json.gatewayFeesSource || "none")
       setLtvCac(json.ltvCac || null)
+      setCohortProjection(json.cohortProjection || null)
+      setSecondOrder(json.secondOrder || null)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -1302,6 +1360,240 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* Cohort retention + projection (Loop) */}
+        <div className="card relative group">
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div>
+              <h2 className="font-semibold text-base flex items-center gap-1.5">
+                Cohort retention + projection
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-zinc-300 text-[10px] text-zinc-500 hover:bg-zinc-100"
+                  aria-label="Projection method"
+                  title={cohortProjection?.decay.methodSummary || "Loop cohort projection"}
+                  onClick={() => setCohortTipOpen((o) => !o)}
+                  onBlur={() => setCohortTipOpen(false)}
+                >
+                  ?
+                </button>
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1 leading-snug">
+                Monthly Loop cohorts · snapshot{" "}
+                {cohortProjection?.snapshotDate || "—"} · solid = observed · dashed = projected
+                {cohortProjection
+                  ? ` · ${cohortProjection.decay.matureCohortCount} mature for decay fit · $${cohortProjection.revenuePerCustomer.toFixed(0)}/retained (Loop LTV)`
+                  : ""}
+              </p>
+            </div>
+          </div>
+          {(cohortTipOpen || false) && cohortProjection?.decay.methodSummary && (
+            <div
+              role="tooltip"
+              className="absolute z-20 left-4 right-4 top-14 rounded-lg border border-zinc-200 bg-white p-3 text-xs text-zinc-600 leading-relaxed shadow-lg"
+            >
+              {cohortProjection.decay.methodSummary}
+            </div>
+          )}
+          {!cohortProjection && (
+            <p className="text-sm text-zinc-500 mt-3">
+              No Loop cohort snapshot yet. Waiting on daily ingest into{" "}
+              <code className="text-[10px]">loop_cohort_retention</code>.
+            </p>
+          )}
+          {cohortProjection && cohortProjection.rows.length > 0 && (
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-zinc-500 uppercase border-b border-zinc-200">
+                    <th className="text-left py-2 pr-2 font-medium sticky left-0 bg-white">Cohort</th>
+                    <th className="text-right py-2 px-1 font-medium">Size</th>
+                    {cohortProjection.dayColumns.map((col) => (
+                      <th key={col} className="text-center py-2 px-1 font-medium whitespace-nowrap">
+                        {col.replace("day_", "d")}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cohortProjection.rows.slice(0, 18).map((row) => (
+                    <tr key={row.cohortStart} className="border-b border-zinc-100">
+                      <td className="py-1.5 pr-2 font-medium text-zinc-800 whitespace-nowrap sticky left-0 bg-white">
+                        {row.cohortStart.slice(0, 7)}
+                        <span className="ml-1 text-[10px] text-zinc-400 font-normal">
+                          {row.maturity === "mature" ? "" : row.maturity}
+                        </span>
+                      </td>
+                      <td className="text-right py-1.5 px-1 text-zinc-600 tabular-nums">
+                        {row.cohortSize.toLocaleString()}
+                      </td>
+                      {row.cells.map((cell) => (
+                        <td key={cell.metric} className="p-0.5">
+                          <div
+                            title={`${cell.metric}: ${cell.valuePct.toFixed(1)}% · ~${Math.round(cell.active).toLocaleString()} active · ~$${Math.round(cell.revenue).toLocaleString()}${cell.projected ? " (projected)" : ""}`}
+                            className={`text-center py-1.5 px-1 rounded tabular-nums ${
+                              cell.projected
+                                ? "border border-dashed border-emerald-300/80 text-zinc-500"
+                                : "border border-transparent text-zinc-800"
+                            }`}
+                            style={{
+                              background: `rgba(16, 185, 129, ${
+                                cell.projected
+                                  ? 0.12 + Math.min(1, cell.valuePct / 100) * 0.25
+                                  : 0.1 + Math.min(1, cell.valuePct / 100) * 0.65
+                              })`,
+                            }}
+                          >
+                            {cell.valuePct > 0 ? `${cell.valuePct.toFixed(0)}%` : "—"}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {cohortProjection.forwardTotals.length > 0 && (
+                <p className="text-[11px] text-zinc-500 mt-3 leading-snug">
+                  At {cohortProjection.forwardTotals[cohortProjection.forwardTotals.length - 1]?.metric}: ~
+                  {Math.round(
+                    cohortProjection.forwardTotals[cohortProjection.forwardTotals.length - 1]?.active || 0
+                  ).toLocaleString()}{" "}
+                  projected active across shown cohorts · ~
+                  {fmt(
+                    cohortProjection.forwardTotals[cohortProjection.forwardTotals.length - 1]?.revenue || 0
+                  )}{" "}
+                  projected revenue (illustrative).
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Time to second order */}
+        <div className="card">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
+            <div>
+              <h2 className="font-semibold text-base">Time to second order</h2>
+              <p className="text-xs text-zinc-400 mt-1 leading-snug">
+                {secondOrder
+                  ? `First orders ${secondOrder.windowStart} → ${secondOrder.windowEnd} (Pacific) · cached as of ${secondOrder.asOfDate} · ${secondOrder.splitNote}`
+                  : "Cached Shopify scan (daily cron) — not loaded on page view."}
+              </p>
+            </div>
+            {secondOrder && (
+              <div className="flex gap-1 flex-wrap">
+                {(
+                  [
+                    ["all", "All"],
+                    ["subscriber", "Subscribers"],
+                    ["oneTime", "One-time"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSecondOrderSeg(key)}
+                    className={`text-xs px-2.5 py-1 rounded-lg border ${
+                      secondOrderSeg === key
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-white text-zinc-600 border-zinc-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {!secondOrder && (
+            <p className="text-sm text-zinc-500">
+              No cached stats yet. Run{" "}
+              <code className="text-[10px]">POST /api/second-order/refresh</code> with the cron
+              Bearer secret after deploy.
+            </p>
+          )}
+          {secondOrder && (() => {
+            const seg =
+              secondOrderSeg === "subscriber"
+                ? secondOrder.subscriber
+                : secondOrderSeg === "oneTime"
+                  ? secondOrder.oneTime
+                  : secondOrder.all
+            const maxBucket = Math.max(1, ...seg.buckets.map((b) => b.count))
+            const maxCum = Math.max(1, ...seg.cumulative.map((c) => c.repeatRatePct))
+            return (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <div className="metric-big text-2xl">
+                      {seg.medianDaysToSecond != null ? seg.medianDaysToSecond.toFixed(0) : "—"}
+                    </div>
+                    <div className="metric-label mt-1">Median days to 2nd</div>
+                  </div>
+                  <div>
+                    <div className="metric-big text-2xl">{fmtPct(seg.repeatRate30)}</div>
+                    <div className="metric-label mt-1">Repeat by day 30</div>
+                  </div>
+                  <div>
+                    <div className="metric-big text-2xl">{fmtPct(seg.repeatRate60)}</div>
+                    <div className="metric-label mt-1">Repeat by day 60</div>
+                  </div>
+                  <div>
+                    <div className="metric-big text-2xl">{fmtPct(seg.repeatRate90)}</div>
+                    <div className="metric-label mt-1">Repeat by day 90</div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  {seg.firstOrderCustomers.toLocaleString()} first-order customers ·{" "}
+                  {seg.repeaters.toLocaleString()} reordered
+                </p>
+                <div>
+                  <div className="text-xs font-medium text-zinc-600 mb-2">Days to second order</div>
+                  <div className="flex items-end gap-1.5 h-28">
+                    {seg.buckets.map((b) => (
+                      <div key={b.key} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                        <div className="text-[10px] text-zinc-500 tabular-nums">{b.count || ""}</div>
+                        <div
+                          className="w-full rounded-t bg-emerald-600/80 min-h-[2px]"
+                          style={{ height: `${(b.count / maxBucket) * 100}%` }}
+                          title={`${b.key}: ${b.count}`}
+                        />
+                        <div className="text-[9px] text-zinc-400 whitespace-nowrap">{b.key}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-zinc-600 mb-2">
+                    Cumulative repeat rate by day N
+                  </div>
+                  <div className="relative h-24 border-b border-l border-zinc-200">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
+                      <polyline
+                        fill="none"
+                        stroke="rgb(5 150 105)"
+                        strokeWidth="2"
+                        vectorEffect="non-scaling-stroke"
+                        points={seg.cumulative
+                          .map((c, i) => {
+                            const x = (i / Math.max(1, seg.cumulative.length - 1)) * 100
+                            const y = 100 - (c.repeatRatePct / maxCum) * 100
+                            return `${x},${y}`
+                          })
+                          .join(" ")}
+                      />
+                    </svg>
+                  </div>
+                  <div className="flex justify-between text-[9px] text-zinc-400 mt-1">
+                    {seg.cumulative.map((c) => (
+                      <span key={c.day}>d{c.day}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+        </div>
 
         {/* Subscription → free gift mapping */}
         {giftPlans.length > 0 && (

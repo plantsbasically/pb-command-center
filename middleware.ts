@@ -9,6 +9,7 @@ const BEARER_SECRET_EXEMPT = new Set([
   "/api/loop-metrics/ingest",
   "/api/loop-metrics/status",
   "/api/daily-metrics/refresh",
+  "/api/second-order/refresh",
 ])
 
 function unauthorized() {

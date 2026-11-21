@@ -193,6 +193,16 @@ async function runSchemaMigration() {
         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `
+    // Cached time-to-second-order summary (Shopify scan via daily cron — not page load).
+    await sql`
+      CREATE TABLE IF NOT EXISTS second_order_stats (
+        id              INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        as_of_date      DATE NOT NULL,
+        lookback_days   INT NOT NULL DEFAULT 180,
+        payload         JSONB NOT NULL DEFAULT '{}',
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
     schemaReady = true
   } finally {
     await sql`SELECT pg_advisory_unlock(${SCHEMA_ADVISORY_LOCK})`
