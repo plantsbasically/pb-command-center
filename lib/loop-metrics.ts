@@ -427,6 +427,40 @@ export async function getLoopMetricsRange(start: string, end: string) {
   }
 }
 
+/** Latest Loop LTV snapshot rows (for LTV:CAC). */
+export async function getLatestLoopLtvSnapshot(): Promise<{
+  snapshotDate: string
+  rows: { segment: string; customers: number; revenuePerCustomer: number }[]
+} | null> {
+  try {
+    const sql = await getDb()
+    const [latest] = await sql`SELECT MAX(snapshot_date)::text AS d FROM loop_ltv_snapshot`
+    const snapshotDate = (latest?.d as string) || null
+    if (!snapshotDate) return null
+    const rows = await sql`
+      SELECT
+        segment,
+        customers,
+        revenue_per_customer
+      FROM loop_ltv_snapshot
+      WHERE snapshot_date = ${snapshotDate}::date
+      ORDER BY segment ASC
+    `
+    if (!rows.length) return null
+    return {
+      snapshotDate,
+      rows: rows.map((r) => ({
+        segment: r.segment as string,
+        customers: Number(r.customers) || 0,
+        revenuePerCustomer: Number(r.revenue_per_customer) || 0,
+      })),
+    }
+  } catch (err: any) {
+    console.warn("getLatestLoopLtvSnapshot failed:", err?.message)
+    return null
+  }
+}
+
 /** Lightweight summary for main /api — sum of new subscribers in range. */
 export async function getLoopMetricsSummary(start: string, end: string): Promise<{
   newSubscribers: number

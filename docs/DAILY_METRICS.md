@@ -74,7 +74,7 @@ Idempotent: days already `complete` are skipped unless `"force": true`. Today is
 
 ## Dashboard read path
 
-`GET /api?start&end` sums `daily_metrics` rows for the Pacific range. Ratios (CM %, ROAS, AOV, CAC) are computed from **summed totals**, never averaged. Missing days are live-computed and upserted on demand. `?live=1` forces the legacy full live path. `?bust=1` re-refreshes today.
+`GET /api?start&end` sums `daily_metrics` rows for the Pacific range. Ratios (CM %, ROAS, AOV, CAC) are computed from **summed totals**, never averaged. After the sum, **LTV:CAC is overlaid** from the latest Loop `loop_ltv_snapshot` (subscriber-weighted LTV) and Shopify-attributable CAC — see `docs/DATA_SOURCES.md` / `lib/ltv-cac.ts`. Missing days are live-computed and upserted on demand. `?live=1` forces the legacy full live path. `?bust=1` re-refreshes today.
 
 **Discounts remain display-only** and are never subtracted from revenue or CM.
 

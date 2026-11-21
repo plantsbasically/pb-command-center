@@ -137,7 +137,18 @@ Schema is created idempotently in `lib/db.ts` `ensureSchema` under a Postgres ad
 | `POST` | `/api/loop-metrics/ingest` | `Authorization: Bearer ${LOOP_INGEST_SECRET}` (excluded from basic-auth middleware) |
 | `GET` | `/api/loop-metrics/status` | Same Bearer secret — latest dates + missing daily dates (last 90 days) for backfill |
 | `GET` | `/api/loop-metrics?start&end` | Basic auth — daily rows for range + latest cohort/LTV snapshots |
-| `GET` | `/api` | Basic auth — optional additive `loopMetrics` summary (`sum` of new/reactivated/resumed in range); existing fields unchanged |
+| `GET` | `/api` | Basic auth — optional additive `loopMetrics` summary (`sum` of new/reactivated/resumed in range); includes `ltvCac` meta (see below) |
+
+### LTV:CAC (dashboard)
+
+| Piece | Source |
+| --- | --- |
+| **LTV** | Customer-weighted mean of Loop `loop_ltv_snapshot` **subscriber** segments (`Order1Subscriber` … `Order4AndMoreSubscriber`) from the latest snapshot. Fallback: Triple Whale `uniqueCustomerSales`. |
+| **CAC** | Shopify-attributable ad spend ÷ Shopify new customers. Attributable spend = blended ads − Amazon Ads − TikTok ads (no reliable new-customer counts for those channels). |
+| **Target** | `TARGET_LTV_CAC = 3.0` (green at/above). Warning/red below `LTV_CAC_WARNING = 1.5`. |
+| **CM** | Unchanged — contribution margin still uses **full blended** ad spend. |
+
+API response includes `ltvCac` (`explainTooltip`, `ltvHint`, `cacHint`, snapshot date, segments). See `lib/ltv-cac.ts`.
 
 ### Example ingest payload
 

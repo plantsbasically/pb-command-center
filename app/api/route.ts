@@ -76,6 +76,7 @@ export async function GET(req: NextRequest) {
           loopData: rangeData.loopData,
           dataSources: rangeData.dataSources,
           _shopifyDebug: rangeData._shopifyDebug,
+          ltvCac: rangeData.ltvCac,
         },
         todaySource: {
           date: today,
@@ -86,6 +87,7 @@ export async function GET(req: NextRequest) {
         },
         loopMetrics,
         metricsSource: "live",
+        ltvCac: rangeData.ltvCac,
       })
     } else {
       const { getMetricsFromDailyStore } = await import("@/lib/daily-metrics")
@@ -172,8 +174,13 @@ export async function GET(req: NextRequest) {
             discounts: {
               note: "Information-only. Never subtracted from revenue or CM.",
             },
+            ltvCac: {
+              ltv: "Loop loop_ltv_snapshot customer-weighted subscriber segments (Order1–Order4+); fallback TW uniqueCustomerSales",
+              cac: "Shopify-attributable ad spend (blended − Amazon Ads − TikTok ads) ÷ Shopify new customers",
+            },
           },
           _shopifyDebug: null,
+          ltvCac: store.ltvCac,
         },
         todaySource: dailyRow
           ? {
@@ -217,6 +224,7 @@ export async function GET(req: NextRequest) {
         loopMetrics,
         metricsSource: summed.fromStore ? "daily_metrics" : "daily_metrics+live_fallback",
         fulfillmentCoverage: buildFulfillmentCoverage(summed),
+        ltvCac: store.ltvCac,
       })
     }
 
@@ -288,6 +296,7 @@ function assembleResponse(opts: {
   loopMetrics: any
   metricsSource: string
   fulfillmentCoverage?: any
+  ltvCac?: any
 }) {
   const {
     dateStart,
@@ -298,6 +307,7 @@ function assembleResponse(opts: {
     loopMetrics,
     metricsSource,
     fulfillmentCoverage,
+    ltvCac,
   } = opts
 
   // Hero must use the selected range totals (summed daily_metrics / live range).
@@ -327,6 +337,7 @@ function assembleResponse(opts: {
     loopMetrics,
     metricsSource,
     fulfillmentCoverage: fulfillmentCoverage || null,
+    ltvCac: ltvCac || range.ltvCac || null,
     // Primary hero payload (range). Kept under dailyContribution for UI compat.
     dailyContribution: contributionMargin,
     contributionMargin,
