@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBasicAuthHeader, authHeaders } from "@/lib/auth"
 import { todayPacific } from "@/lib/dates"
+import { buildContributionHero } from "@/lib/contribution-hero"
 
 // Allow up to 90s — live fallback / missing-day compute can still page Shopify
 export const maxDuration = 90
@@ -51,6 +52,9 @@ export async function GET(req: NextRequest) {
       const dailySource = dailyData || rangeData
       const loopMetrics = await getLoopMetricsSummary(dateStart, dateEnd)
       responseData = assembleResponse({
+        dateStart,
+        dateEnd,
+        todayISO: today,
         range: {
           metrics: rangeData.metrics,
           twData: rangeData.twData,
@@ -73,7 +77,7 @@ export async function GET(req: NextRequest) {
           dataSources: rangeData.dataSources,
           _shopifyDebug: rangeData._shopifyDebug,
         },
-        dailySource: {
+        todaySource: {
           date: today,
           metrics: dailySource.metrics,
           giftStats: dailySource.giftStats,
@@ -108,6 +112,9 @@ export async function GET(req: NextRequest) {
         .map((d) => d.date)
 
       responseData = assembleResponse({
+        dateStart,
+        dateEnd,
+        todayISO: today,
         range: {
           metrics: summed.metrics,
           twData: {
@@ -156,7 +163,7 @@ export async function GET(req: NextRequest) {
             metricsSource: summed.fromStore ? "daily_metrics" : "daily_metrics+live_fallback",
             contributionMargin: {
               formula: "revenue − adSpend − realCOGS − netFulfillment − gatewayFees",
-              note: "Summed from daily_metrics Pacific rows; ratios from totals.",
+              note: "Summed from daily_metrics Pacific rows; ratios from totals. Hero uses range totals.",
             },
             fulfillment: {
               primary: "ShipFusion per-shipment charges (daily_metrics breakdown)",
@@ -168,7 +175,7 @@ export async function GET(req: NextRequest) {
           },
           _shopifyDebug: null,
         },
-        dailySource: dailyRow
+        todaySource: dailyRow
           ? {
               date: dailyRow.date,
               metrics: {
@@ -272,49 +279,57 @@ function buildFulfillmentCoverage(summed: {
 }
 
 function assembleResponse(opts: {
+  dateStart: string
+  dateEnd: string
+  todayISO: string
   range: any
-  dailySource: any
+  /** Pacific-today snapshot for optional secondary line — NOT the hero total */
+  todaySource: any
   loopMetrics: any
   metricsSource: string
   fulfillmentCoverage?: any
 }) {
-  const { range, dailySource, loopMetrics, metricsSource, fulfillmentCoverage } = opts
+  const {
+    dateStart,
+    dateEnd,
+    todayISO,
+    range,
+    todaySource,
+    loopMetrics,
+    metricsSource,
+    fulfillmentCoverage,
+  } = opts
+
+  // Hero must use the selected range totals (summed daily_metrics / live range).
+  // Previously dailyContribution was always Pacific today — that was the bug.
+  const contributionMargin = buildContributionHero({
+    dateStart,
+    dateEnd,
+    todayISO,
+    rangeMetrics: range.metrics,
+    giftStats: {
+      giftCOGS: range.giftStats?.giftCOGS ?? 0,
+      giftRetailDiscounted: range.giftStats?.giftRetailDiscounted ?? 0,
+    },
+    fulfillmentSource: range.fulfillmentSource,
+    fulfillmentBreakdown: range.fulfillmentBreakdown,
+    todayMetrics: todaySource?.metrics
+      ? {
+          trueContributionMargin: todaySource.metrics.trueContributionMargin,
+          trueContributionMarginPct: todaySource.metrics.trueContributionMarginPct,
+          revenue: todaySource.metrics.revenue,
+        }
+      : null,
+  })
+
   return {
     ...range,
     loopMetrics,
     metricsSource,
     fulfillmentCoverage: fulfillmentCoverage || null,
-    dailyContribution: dailySource
-      ? {
-          date: dailySource.date,
-          contributionMargin: dailySource.metrics.trueContributionMargin,
-          contributionMarginPct: dailySource.metrics.trueContributionMarginPct,
-          contributionProfit: dailySource.metrics.contributionProfit,
-          revenue: dailySource.metrics.revenue,
-          adSpend: dailySource.metrics.adSpend,
-          cogs: dailySource.metrics.cogs,
-          gatewayFees: dailySource.metrics.gatewayFees,
-          netFulfillmentCost: dailySource.metrics.netFulfillmentCost,
-          fulfillmentInvoiceTotal: dailySource.metrics.fulfillmentInvoiceTotal,
-          shippingCollected: dailySource.metrics.shippingCollected ?? 0,
-          fulfillmentSource: dailySource.fulfillmentSource,
-          fulfillmentBreakdown: dailySource.fulfillmentBreakdown,
-          components: {
-            shopifyRevenue: dailySource.metrics.shopifyRevenue,
-            amazonRevenue: dailySource.metrics.amazonRevenue,
-            tiktokRevenue: dailySource.metrics.tiktokRevenue,
-            shopifyCOGS: dailySource.metrics.shopifyCOGS,
-            amazonCOGS: dailySource.metrics.amazonCOGS,
-            tiktokCOGS: dailySource.metrics.tiktokCOGS,
-            giftCOGS: dailySource.giftStats.giftCOGS,
-            giftRetailDiscounted: dailySource.giftStats.giftRetailDiscounted,
-            gatewayFees: dailySource.metrics.gatewayFees,
-            netFulfillmentCost: dailySource.metrics.netFulfillmentCost,
-          },
-          formula:
-            "Contribution margin = revenue − ad spend − real COGS − net fulfillment − payment gateway fees (gifts at COGS, not retail)",
-        }
-      : null,
+    // Primary hero payload (range). Kept under dailyContribution for UI compat.
+    dailyContribution: contributionMargin,
+    contributionMargin,
     gatewayFees: range.gatewayFees,
     gatewayFeesDaily: range.gatewayFeesDaily,
     gatewayFeesSource: range.gatewayFeesSource,
