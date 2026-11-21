@@ -244,26 +244,61 @@ interface OrdersResponse {
 }
 
 
+async function sleepMs(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+async function shopifyAdminFetchWithRetry(
+  url: string,
+  retried = false
+): Promise<Response> {
+  const res = await shopifyAdminFetch(url, retried)
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("retry-after") || 2)
+    await sleepMs(Math.max(1, retryAfter) * 1000)
+    return shopifyAdminFetchWithRetry(url, retried)
+  }
+  return res
+}
+
 export async function fetchOrders(dateStart: string, dateEnd: string): Promise<ShopifyOrder[]> {
+  return fetchOrdersThrottled(dateStart, dateEnd, { pageDelayMs: 0 })
+}
+
+/**
+ * Paginated order fetch with inter-page delay + 429 retry (for heavy jobs
+ * like time-to-second-order). Same auth as fetchOrders (PB Agents client credentials).
+ */
+export async function fetchOrdersThrottled(
+  dateStart: string,
+  dateEnd: string,
+  opts?: { pageDelayMs?: number; maxOrders?: number }
+): Promise<ShopifyOrder[]> {
   const allOrders: ShopifyOrder[] = []
+  const pageDelayMs = opts?.pageDelayMs ?? 500
+  const maxOrders = opts?.maxOrders ?? 25000
   const { shopifyCreatedAtBounds } = await import("./dates")
   const { createdAtMin, createdAtMax } = shopifyCreatedAtBounds(dateStart, dateEnd)
 
-  // First page — offsets required: bare datetimes are treated as UTC by Shopify.
-  const firstRes = await shopifyFetch("orders.json", {
+  const qs = new URLSearchParams({
     status: "any",
     limit: "250",
     created_at_min: createdAtMin,
     created_at_max: createdAtMax,
-  })
+  }).toString()
+  const firstUrl = `${SHOPIFY_API_BASE}/orders.json?${qs}`
+  const firstRes = await shopifyAdminFetchWithRetry(firstUrl)
+  if (!firstRes.ok) {
+    throw new Error(`Shopify API ${firstRes.status}: ${await firstRes.text()}`)
+  }
   const firstData: OrdersResponse = await firstRes.json()
   allOrders.push(...firstData.orders)
 
-  // Cursor pagination via Link header — reliable for large stores
   let nextUrl = parseNextLink(firstRes.headers.get("link"))
 
-  while (nextUrl && allOrders.length < 25000) {
-    const res = await shopifyAdminFetch(nextUrl)
+  while (nextUrl && allOrders.length < maxOrders) {
+    if (pageDelayMs > 0) await sleepMs(pageDelayMs)
+    const res = await shopifyAdminFetchWithRetry(nextUrl)
     if (!res.ok) throw new Error(`Shopify pagination ${res.status}: ${await res.text()}`)
     const data: OrdersResponse = await res.json()
     if (!data.orders.length) break

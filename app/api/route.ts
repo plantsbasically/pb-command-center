@@ -45,12 +45,13 @@ export async function GET(req: NextRequest) {
       const { buildMetricsForRange } = await import("@/lib/build-metrics")
       const { getLoopMetricsSummary } = await import("@/lib/loop-metrics")
       const needsSeparateDaily = !(dateStart === today && dateEnd === today)
-      const [rangeData, dailyData] = await Promise.all([
+      const [rangeData, dailyData, loopMetrics, extras] = await Promise.all([
         buildMetricsForRange(dateStart, dateEnd),
         needsSeparateDaily ? buildMetricsForRange(today, today) : Promise.resolve(null),
+        getLoopMetricsSummary(dateStart, dateEnd),
+        loadRetentionExtras(),
       ])
       const dailySource = dailyData || rangeData
-      const loopMetrics = await getLoopMetricsSummary(dateStart, dateEnd)
       responseData = assembleResponse({
         dateStart,
         dateEnd,
@@ -88,15 +89,20 @@ export async function GET(req: NextRequest) {
         loopMetrics,
         metricsSource: "live",
         ltvCac: rangeData.ltvCac,
+        cohortProjection: extras.cohortProjection,
+        secondOrder: extras.secondOrder,
       })
     } else {
       const { getMetricsFromDailyStore } = await import("@/lib/daily-metrics")
       const { getLoopMetricsSummary } = await import("@/lib/loop-metrics")
-      const store = await getMetricsFromDailyStore(dateStart, dateEnd, { bust })
+      const [store, loopMetrics, extras] = await Promise.all([
+        getMetricsFromDailyStore(dateStart, dateEnd, { bust }),
+        getLoopMetricsSummary(dateStart, dateEnd),
+        loadRetentionExtras(),
+      ])
 
       const summed = store.summed
       const dailyRow = store.dailyContributionRow
-      const loopMetrics = await getLoopMetricsSummary(dateStart, dateEnd)
 
       // COGS breakdown units are range-specific; when fully from store we show
       // variant list with zero units (edit UI still works). Partial live fallback
@@ -225,6 +231,8 @@ export async function GET(req: NextRequest) {
         metricsSource: summed.fromStore ? "daily_metrics" : "daily_metrics+live_fallback",
         fulfillmentCoverage: buildFulfillmentCoverage(summed),
         ltvCac: store.ltvCac,
+        cohortProjection: extras.cohortProjection,
+        secondOrder: extras.secondOrder,
       })
     }
 
@@ -297,6 +305,8 @@ function assembleResponse(opts: {
   metricsSource: string
   fulfillmentCoverage?: any
   ltvCac?: any
+  cohortProjection?: any
+  secondOrder?: any
 }) {
   const {
     dateStart,
@@ -308,6 +318,8 @@ function assembleResponse(opts: {
     metricsSource,
     fulfillmentCoverage,
     ltvCac,
+    cohortProjection,
+    secondOrder,
   } = opts
 
   // Hero must use the selected range totals (summed daily_metrics / live range).
@@ -338,6 +350,8 @@ function assembleResponse(opts: {
     metricsSource,
     fulfillmentCoverage: fulfillmentCoverage || null,
     ltvCac: ltvCac || range.ltvCac || null,
+    cohortProjection: cohortProjection || null,
+    secondOrder: secondOrder || null,
     // Primary hero payload (range). Kept under dailyContribution for UI compat.
     dailyContribution: contributionMargin,
     contributionMargin,
@@ -347,4 +361,17 @@ function assembleResponse(opts: {
     fulfillmentSource: range.fulfillmentSource,
     fulfillmentBreakdown: range.fulfillmentBreakdown,
   }
+}
+
+/** Cohort projection (Loop SQL) + cached second-order — never live Shopify on page load. */
+async function loadRetentionExtras() {
+  const [{ getCohortProjectionForDashboard }, { getSecondOrderStats }] = await Promise.all([
+    import("@/lib/cohort-dashboard"),
+    import("@/lib/second-order"),
+  ])
+  const [cohortProjection, secondOrder] = await Promise.all([
+    getCohortProjectionForDashboard().catch(() => null),
+    getSecondOrderStats().catch(() => null),
+  ])
+  return { cohortProjection, secondOrder }
 }
