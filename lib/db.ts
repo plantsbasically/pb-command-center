@@ -13,64 +13,129 @@ function getSql() {
 }
 
 let schemaReady = false
+/** In-process mutex so concurrent first requests share one migration. */
+let schemaPromise: Promise<void> | null = null
+
+/** Advisory lock key for schema migrations (arbitrary stable int4). */
+const SCHEMA_ADVISORY_LOCK = 872_014_001
 
 async function ensureSchema() {
   if (schemaReady) return
+  if (!schemaPromise) {
+    schemaPromise = runSchemaMigration()
+  }
+  await schemaPromise
+}
+
+async function runSchemaMigration() {
   const sql = getSql()
-  await sql`
-    CREATE TABLE IF NOT EXISTS cogs_variants (
-      id                  SERIAL PRIMARY KEY,
-      variant_key         TEXT UNIQUE NOT NULL,
-      variant_name        TEXT NOT NULL,
-      shopify_variant_id  TEXT NOT NULL DEFAULT '',
-      line_items          JSONB NOT NULL DEFAULT '[]',
-      total_cost          NUMERIC(10,4) NOT NULL DEFAULT 0,
-      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  // Idempotent migration: add shopify_product_id if the table was created before this column existed
-  await sql`
-    ALTER TABLE cogs_variants
-    ADD COLUMN IF NOT EXISTS shopify_product_id TEXT NOT NULL DEFAULT ''
-  `
-  await sql`
-    CREATE TABLE IF NOT EXISTS fixed_costs (
-      id           SERIAL PRIMARY KEY,
-      name         TEXT UNIQUE NOT NULL,
-      monthly_cost NUMERIC(10,4) NOT NULL DEFAULT 0,
-      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await sql`
-    CREATE TABLE IF NOT EXISTS fulfillment_invoices (
-      id           SERIAL PRIMARY KEY,
-      label        TEXT NOT NULL DEFAULT '',
-      period_start DATE NOT NULL,
-      period_end   DATE NOT NULL,
-      amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await sql`
-    CREATE TABLE IF NOT EXISTS amazon_fee_invoices (
-      id           SERIAL PRIMARY KEY,
-      label        TEXT NOT NULL DEFAULT '',
-      period_start DATE NOT NULL,
-      period_end   DATE NOT NULL,
-      amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  // Single-row JSON document for subscription plan → free-gift mappings.
-  // Editable later via admin API; seeded from data/gift-mappings.json.
-  await sql`
-    CREATE TABLE IF NOT EXISTS subscription_gift_mappings (
-      id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-      payload    JSONB NOT NULL DEFAULT '{}',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  schemaReady = true
+  // Serialize across processes/connections — avoids concurrent CREATE races on cold start.
+  await sql`SELECT pg_advisory_lock(${SCHEMA_ADVISORY_LOCK})`
+  try {
+    if (schemaReady) return
+    await sql`
+      CREATE TABLE IF NOT EXISTS cogs_variants (
+        id                  SERIAL PRIMARY KEY,
+        variant_key         TEXT UNIQUE NOT NULL,
+        variant_name        TEXT NOT NULL,
+        shopify_variant_id  TEXT NOT NULL DEFAULT '',
+        line_items          JSONB NOT NULL DEFAULT '[]',
+        total_cost          NUMERIC(10,4) NOT NULL DEFAULT 0,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    // Idempotent migration: add shopify_product_id if the table was created before this column existed
+    await sql`
+      ALTER TABLE cogs_variants
+      ADD COLUMN IF NOT EXISTS shopify_product_id TEXT NOT NULL DEFAULT ''
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS fixed_costs (
+        id           SERIAL PRIMARY KEY,
+        name         TEXT UNIQUE NOT NULL,
+        monthly_cost NUMERIC(10,4) NOT NULL DEFAULT 0,
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS fulfillment_invoices (
+        id           SERIAL PRIMARY KEY,
+        label        TEXT NOT NULL DEFAULT '',
+        period_start DATE NOT NULL,
+        period_end   DATE NOT NULL,
+        amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS amazon_fee_invoices (
+        id           SERIAL PRIMARY KEY,
+        label        TEXT NOT NULL DEFAULT '',
+        period_start DATE NOT NULL,
+        period_end   DATE NOT NULL,
+        amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    // Single-row JSON document for subscription plan → free-gift mappings.
+    // Editable later via admin API; seeded from data/gift-mappings.json.
+    await sql`
+      CREATE TABLE IF NOT EXISTS subscription_gift_mappings (
+        id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        payload    JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    // Loop analytics ingest (external assistant POSTs daily MCP snapshots).
+    await sql`
+      CREATE TABLE IF NOT EXISTS loop_daily_metrics (
+        date                  DATE PRIMARY KEY,
+        new_subscribers       INT NOT NULL DEFAULT 0,
+        reactivated           INT NOT NULL DEFAULT 0,
+        resumed               INT NOT NULL DEFAULT 0,
+        churned               INT NULL,
+        active_subscribers    INT NULL,
+        active_subscriptions  INT NULL,
+        mrr                   NUMERIC NULL,
+        source                TEXT,
+        raw                   JSONB,
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS loop_cohort_retention (
+        cohort_start        DATE NOT NULL,
+        cohort_granularity  TEXT NOT NULL CHECK (cohort_granularity IN ('day', 'week', 'month')),
+        cohort_size         INT NOT NULL DEFAULT 0,
+        metric              TEXT NOT NULL,
+        value_pct           NUMERIC NOT NULL,
+        ltv                 NUMERIC NULL,
+        snapshot_date       DATE NOT NULL,
+        raw                 JSONB,
+        PRIMARY KEY (cohort_start, cohort_granularity, metric, snapshot_date)
+      )
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS loop_ltv_snapshot (
+        snapshot_date           DATE NOT NULL,
+        segment                 TEXT NOT NULL,
+        customers               INT NOT NULL DEFAULT 0,
+        revenue_per_customer    NUMERIC NOT NULL DEFAULT 0,
+        raw                     JSONB,
+        PRIMARY KEY (snapshot_date, segment)
+      )
+    `
+    schemaReady = true
+  } finally {
+    await sql`SELECT pg_advisory_unlock(${SCHEMA_ADVISORY_LOCK})`
+  }
+}
+
+/** Shared DB handle after schema is ready — used by loop-metrics ingest helpers. */
+export async function getDb() {
+  const sql = getSql()
+  await ensureSchema()
+  return sql
 }
 
 export interface COGSVariantRow {

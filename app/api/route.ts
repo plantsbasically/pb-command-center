@@ -218,8 +218,12 @@ export async function GET(req: NextRequest) {
     ])
 
     const dailySource = dailyData || rangeData
+    // Optional Loop ingest summary (additive only — does not alter existing fields/calcs).
+    const { getLoopMetricsSummary } = await import("@/lib/loop-metrics")
+    const loopMetrics = await getLoopMetricsSummary(dateStart, dateEnd)
     const responseData = {
       ...rangeData,
+      loopMetrics,
       dailyContribution: {
         date: today,
         contributionMargin: dailySource.metrics.trueContributionMargin,

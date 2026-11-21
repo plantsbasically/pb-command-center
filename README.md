@@ -2,7 +2,7 @@
 
 Plants Basically Profit Command Center
 
-See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, ShipFusion fulfillment, payment gateway fees, and subscription → free-gift mapping.
+See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, ShipFusion fulfillment, payment gateway fees, subscription → free-gift mapping, and the Loop analytics ingest pipeline.
 
 ## Env vars
 
@@ -12,9 +12,10 @@ See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contr
 | `SHOPIFY_STORE_DOMAIN` | Shop host (falls back to `SHOPIFY_STORE_URL`) |
 | `SHOPIFY_ACCESS_TOKEN` | Legacy static Admin token if client credentials unset |
 | `TRIPLEWHALE_API_KEY` | Triple Whale summary metrics + gateway fee SQL |
-| `LOOP_API_KEY` | Loop active subscriber count |
+| `LOOP_API_KEY` | Loop Admin API — active subscribers + subscriber MRR |
+| `LOOP_INGEST_SECRET` | Bearer secret for `POST /api/loop-metrics/ingest` and `GET /api/loop-metrics/status` |
 | `SHIPFUSION_API_KEY` | ShipFusion billing (primary 3PL cost). Alias: `SHIPFUSION_API_TOKEN` |
-| `DATABASE_URL` | Postgres (COGS, fixed costs, manual fulfillment invoices, gift mappings) |
+| `DATABASE_URL` | Postgres (COGS, fixed costs, manual fulfillment invoices, gift mappings, Loop metrics) |
 
 ## Shopify auth
 
