@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { USERS } from "@/lib/constants"
 
 /**
- * Basic-auth gate for /api/* except Loop ingest endpoints (Bearer secret instead).
+ * Basic-auth gate for /api/* except Bearer-secret cron/ingest endpoints.
  * Route handlers still enforce their own auth as defense in depth.
  */
-const LOOP_INGEST_EXEMPT = new Set([
+const BEARER_SECRET_EXEMPT = new Set([
   "/api/loop-metrics/ingest",
   "/api/loop-metrics/status",
+  "/api/daily-metrics/refresh",
 ])
 
 function unauthorized() {
@@ -20,7 +21,7 @@ function unauthorized() {
 export function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname
 
-  if (LOOP_INGEST_EXEMPT.has(path)) {
+  if (BEARER_SECRET_EXEMPT.has(path)) {
     return NextResponse.next()
   }
 

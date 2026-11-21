@@ -85,18 +85,9 @@ netFulfillmentCost = fulfillmentInvoiceTotal > 0
   : 0
 ```
 
-### TODO — `daily_metrics` table (not built yet)
+### `daily_metrics` (persisted Pacific rollups)
 
-When a `daily_metrics` table is added, include at least:
-
-- `date` (DATE, America/Los_Angeles business day)
-- `fulfillment_gross` (NUMERIC) — 3PL cost before shipping collected
-- `fulfillment_net` (NUMERIC) — after subtracting Shopify shipping collected
-- `fulfillment_pick_pack`, `fulfillment_shipping`, `fulfillment_packaging`, `fulfillment_insurance`, `fulfillment_storage`, `fulfillment_other` (NUMERIC)
-- `fulfillment_source` (TEXT: `shipfusion` | `manual` | `mixed`)
-- `gateway_fees` (NUMERIC) — daily Shopify payment gateway costs from TW
-
-Do **not** invent this table until product asks for persisted daily rollups; the live API + in-memory ShipFusion / TW caches are the source of truth today.
+See [DAILY_METRICS.md](./DAILY_METRICS.md). Dashboard date ranges **sum** stored rows (ratios from totals). Includes fulfillment category breakdown + `shipfusion_fulfillment_cost` (net) used in CM and shown as **ShipFusion fulfillment** on the dashboard.
 
 ## Subscription → free gift mapping
 

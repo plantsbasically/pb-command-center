@@ -1,4 +1,5 @@
 import postgres from "postgres"
+import { pgDateToISO } from "./dates"
 
 // Singleton connection — reused across requests on Railway's long-running server
 const globalForSql = globalThis as unknown as { _sql?: ReturnType<typeof postgres> }
@@ -125,6 +126,73 @@ async function runSchemaMigration() {
         PRIMARY KEY (snapshot_date, segment)
       )
     `
+    // Pacific-day P&L rollups — dashboard ranges sum these instead of live Shopify.
+    await sql`
+      CREATE TABLE IF NOT EXISTS daily_metrics (
+        date                          DATE PRIMARY KEY,
+        revenue                       NUMERIC(14,4) NOT NULL DEFAULT 0,
+        shopify_revenue               NUMERIC(14,4) NOT NULL DEFAULT 0,
+        amazon_revenue                NUMERIC(14,4) NOT NULL DEFAULT 0,
+        tiktok_revenue                NUMERIC(14,4) NOT NULL DEFAULT 0,
+        cogs                          NUMERIC(14,4) NOT NULL DEFAULT 0,
+        shopify_cogs                  NUMERIC(14,4) NOT NULL DEFAULT 0,
+        amazon_cogs                   NUMERIC(14,4) NOT NULL DEFAULT 0,
+        tiktok_cogs                   NUMERIC(14,4) NOT NULL DEFAULT 0,
+        gift_cogs                     NUMERIC(14,4) NOT NULL DEFAULT 0,
+        gift_retail_discounted        NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend                      NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_facebook             NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_google               NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_microsoft            NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_tiktok               NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_snapchat             NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_pinterest            NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ad_spend_amazon               NUMERIC(14,4) NOT NULL DEFAULT 0,
+        gateway_fees                  NUMERIC(14,4) NOT NULL DEFAULT 0,
+        shipping_collected            NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_gross             NUMERIC(14,4) NOT NULL DEFAULT 0,
+        shipfusion_fulfillment_cost   NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_pick_pack         NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_shipping          NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_packaging         NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_insurance         NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_storage           NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_other             NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fulfillment_source            TEXT,
+        amazon_fee_invoice_total      NUMERIC(14,4) NOT NULL DEFAULT 0,
+        tiktok_fees                   NUMERIC(14,4) NOT NULL DEFAULT 0,
+        contribution_margin           NUMERIC(14,4) NOT NULL DEFAULT 0,
+        contribution_profit           NUMERIC(14,4) NOT NULL DEFAULT 0,
+        fixed_costs                   NUMERIC(14,4) NOT NULL DEFAULT 0,
+        net_profit                    NUMERIC(14,4) NOT NULL DEFAULT 0,
+        orders_count                  INT NOT NULL DEFAULT 0,
+        new_customers                 INT NOT NULL DEFAULT 0,
+        total_customers               INT NOT NULL DEFAULT 0,
+        subscription_revenue          NUMERIC(14,4) NOT NULL DEFAULT 0,
+        subscription_order_count      INT NOT NULL DEFAULT 0,
+        discount_total                NUMERIC(14,4) NOT NULL DEFAULT 0,
+        discount_promotional          NUMERIC(14,4) NOT NULL DEFAULT 0,
+        discount_subscription         NUMERIC(14,4) NOT NULL DEFAULT 0,
+        discount_free_gifts           NUMERIC(14,4) NOT NULL DEFAULT 0,
+        discount_other                NUMERIC(14,4) NOT NULL DEFAULT 0,
+        ltv                           NUMERIC(14,4) NOT NULL DEFAULT 0,
+        attributed_revenue            NUMERIC(14,4) NOT NULL DEFAULT 0,
+        status                        TEXT NOT NULL DEFAULT 'complete'
+                                      CHECK (status IN ('complete', 'in_progress')),
+        source                        TEXT,
+        updated_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+    // Single-row Loop Admin API snapshot — page load must not scan subscriptions.
+    await sql`
+      CREATE TABLE IF NOT EXISTS loop_live_cache (
+        id                   INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        active_subscribers   INT NOT NULL DEFAULT 0,
+        subscriber_mrr       NUMERIC(14,4) NOT NULL DEFAULT 0,
+        source               TEXT,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
     schemaReady = true
   } finally {
     await sql`SELECT pg_advisory_unlock(${SCHEMA_ADVISORY_LOCK})`
@@ -245,8 +313,8 @@ export async function getFulfillmentInvoices(): Promise<FulfillmentInvoiceRow[]>
   return rows.map((r) => ({
     id: Number(r.id),
     label: r.label as string,
-    periodStart: (r.period_start as Date).toISOString().split("T")[0],
-    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    periodStart: pgDateToISO(r.period_start as Date | string),
+    periodEnd: pgDateToISO(r.period_end as Date | string),
     amount: Number(r.amount),
   }))
 }
@@ -263,8 +331,8 @@ export async function addFulfillmentInvoice(invoice: Omit<FulfillmentInvoiceRow,
   return {
     id: Number(r.id),
     label: r.label as string,
-    periodStart: (r.period_start as Date).toISOString().split("T")[0],
-    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    periodStart: pgDateToISO(r.period_start as Date | string),
+    periodEnd: pgDateToISO(r.period_end as Date | string),
     amount: Number(r.amount),
   }
 }
@@ -290,8 +358,8 @@ export async function getAmazonFeeInvoices(): Promise<AmazonFeeInvoiceRow[]> {
   return rows.map((r) => ({
     id: Number(r.id),
     label: r.label as string,
-    periodStart: (r.period_start as Date).toISOString().split("T")[0],
-    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    periodStart: pgDateToISO(r.period_start as Date | string),
+    periodEnd: pgDateToISO(r.period_end as Date | string),
     amount: Number(r.amount),
   }))
 }
@@ -308,8 +376,8 @@ export async function addAmazonFeeInvoice(invoice: Omit<AmazonFeeInvoiceRow, "id
   return {
     id: Number(r.id),
     label: r.label as string,
-    periodStart: (r.period_start as Date).toISOString().split("T")[0],
-    periodEnd: (r.period_end as Date).toISOString().split("T")[0],
+    periodStart: pgDateToISO(r.period_start as Date | string),
+    periodEnd: pgDateToISO(r.period_end as Date | string),
     amount: Number(r.amount),
   }
 }

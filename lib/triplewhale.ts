@@ -5,8 +5,9 @@ const SHOPIFY_DOMAIN = (process.env.SHOPIFY_STORE_URL || "").replace(/^https?:\/
 export async function fetchTWData(dateStart: string, dateEnd: string) {
   if (!API_KEY) return { raw: null, error: "Missing TRIPLEWHALE_API_KEY env" }
 
-  const today = new Date()
-  const todayHour = today.getHours() + 1
+  // TW todayHour must be Pacific wall-clock hour + 1 (Railway is UTC).
+  const { tripleWhaleTodayHour } = await import("./dates")
+  const todayHour = tripleWhaleTodayHour()
 
   const res = await fetch(
     BASE_URL + "/api/v2/summary-page/get-data",
@@ -16,7 +17,7 @@ export async function fetchTWData(dateStart: string, dateEnd: string) {
       body: JSON.stringify({
         shopDomain: SHOPIFY_DOMAIN,
         period: { start: dateStart, end: dateEnd },
-        todayHour: Math.min(25, Math.max(1, todayHour)),
+        todayHour,
       }),
     },
   )

@@ -150,42 +150,54 @@ interface LoopData {
   subscriberMRR: number
 }
 
-const PRESETS = {
+/** Pacific (America/Los_Angeles) calendar presets — never UTC toISOString day math. */
+function pacificYmd(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d)
+}
+
+function addDaysYmd(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return dt.toISOString().slice(0, 10)
+}
+
+function startOfMonthYmd(iso: string): string {
+  return `${iso.slice(0, 7)}-01`
+}
+
+function previousMonthRange(iso: string): { start: string; end: string } {
+  const thisStart = startOfMonthYmd(iso)
+  const lastDayPrev = addDaysYmd(thisStart, -1)
+  return { start: startOfMonthYmd(lastDayPrev), end: lastDayPrev }
+}
+
+const PRESETS: Record<string, () => { start: string; end: string }> = {
   "Last 7d": () => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setDate(start.getDate() - 7)
-    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] }
+    const end = pacificYmd()
+    return { start: addDaysYmd(end, -7), end }
   },
   "Last 30d": () => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setDate(start.getDate() - 30)
-    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] }
+    const end = pacificYmd()
+    return { start: addDaysYmd(end, -30), end }
   },
   "Last 90d": () => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setDate(start.getDate() - 90)
-    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] }
+    const end = pacificYmd()
+    return { start: addDaysYmd(end, -90), end }
   },
   "Last 180d": () => {
-    const end = new Date()
-    const start = new Date(end)
-    start.setDate(start.getDate() - 180)
-    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] }
+    const end = pacificYmd()
+    return { start: addDaysYmd(end, -180), end }
   },
   "Month to Date": () => {
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth(), 1)
-    return { start: start.toISOString().split("T")[0], end: now.toISOString().split("T")[0] }
+    const end = pacificYmd()
+    return { start: startOfMonthYmd(end), end }
   },
-  "Last Month": () => {
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const end = new Date(now.getFullYear(), now.getMonth(), 0)
-    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] }
-  },
+  "Last Month": () => previousMonthRange(pacificYmd()),
 }
 
 function fmt(n: number, currency = true): string {
@@ -254,11 +266,21 @@ export default function Dashboard() {
   const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
   const [gatewayFees, setGatewayFees] = useState(0)
   const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
-  const [dateStart, setDateStart] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
-  })
-  const [dateEnd, setDateEnd] = useState(() => new Date().toISOString().split("T")[0])
+  const [dateStart, setDateStart] = useState(() => startOfMonthYmd(pacificYmd()))
+  const [dateEnd, setDateEnd] = useState(() => pacificYmd())
+  const [fulfillmentCoverage, setFulfillmentCoverage] = useState<{
+    source: string | null
+    gross: number
+    shippingCollected: number
+    net: number
+    breakdown: FulfillmentBreakdown
+    daysUsed: number
+    missingDays: string[]
+    hasManualBackup: boolean
+    hasShipFusion: boolean
+    noShipFusionDataYet: boolean
+    daysWithoutShipFusion?: number
+  } | null>(null)
   const [editingCOGS, setEditingCOGS] = useState(false)
   const [editingFixed, setEditingFixed] = useState(false)
   const [localVariants, setLocalVariants] = useState<COGSVariant[]>([])
@@ -297,6 +319,7 @@ export default function Dashboard() {
       setFulfillmentInvoices(json.fulfillmentInvoices || [])
       setFulfillmentSource(json.fulfillmentSource || null)
       setFulfillmentBreakdown(json.fulfillmentBreakdown || null)
+      setFulfillmentCoverage(json.fulfillmentCoverage || null)
       setTwData(json.twData || null)
       setLoopData(json.loopData || null)
       setSubscriptionRevenue(json.subscriptionRevenue ?? 0)
@@ -663,7 +686,7 @@ export default function Dashboard() {
                 </span>
                 <span className="text-zinc-600">−</span>
                 <span>
-                  Net fulfillment{" "}
+                  ShipFusion fulfillment{" "}
                   <span className="text-zinc-200">{fmt(dailyContribution.netFulfillmentCost || 0)}</span>
                 </span>
                 <span className="text-zinc-600">−</span>
@@ -892,6 +915,101 @@ export default function Dashboard() {
           )
         })()}
 
+        {/* ShipFusion fulfillment — range-aware, same net used in CM */}
+        {m && (
+          <div className="card border border-zinc-200">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                  Selected range · 3PL
+                </div>
+                <div className="text-sm font-semibold text-zinc-800">ShipFusion fulfillment</div>
+                <div
+                  className={`metric-big mt-1 ${
+                    m.fulfillmentInvoiceTotal > 0
+                      ? m.netFulfillmentCost <= 0
+                        ? "positive"
+                        : "text-orange-600"
+                      : "text-zinc-400"
+                  }`}
+                >
+                  {m.fulfillmentInvoiceTotal > 0 ? fmt(m.netFulfillmentCost) : "—"}
+                </div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  Net of customer-paid shipping (same figure subtracted in contribution margin)
+                </div>
+                {(fulfillmentCoverage?.hasManualBackup ||
+                  fulfillmentSource === "manual" ||
+                  fulfillmentSource === "mixed") && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
+                    Manual invoice backup included
+                    {fulfillmentSource ? ` · source: ${fulfillmentSource}` : ""}
+                  </div>
+                )}
+                {fulfillmentCoverage?.noShipFusionDataYet && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-zinc-600 bg-zinc-100 border border-zinc-200 rounded-md px-2 py-1">
+                    No ShipFusion shipment charges for this range yet
+                  </div>
+                )}
+                {(fulfillmentCoverage?.daysWithoutShipFusion ?? 0) > 0 &&
+                  !fulfillmentCoverage?.noShipFusionDataYet && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-zinc-600 bg-zinc-100 border border-zinc-200 rounded-md px-2 py-1">
+                      {fulfillmentCoverage!.daysWithoutShipFusion} day(s) without ShipFusion data
+                    </div>
+                  )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-xs font-mono text-zinc-600 min-w-[240px]">
+                {(() => {
+                  const fb = fulfillmentBreakdown || fulfillmentCoverage?.breakdown
+                  if (!fb) {
+                    return <div className="text-zinc-400">Breakdown unavailable</div>
+                  }
+                  return (
+                    <>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">Pick &amp; pack</div>
+                        <div className="text-zinc-800">{fmt(fb.pickPack)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">Shipping</div>
+                        <div className="text-zinc-800">{fmt(fb.shipping)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">Packaging</div>
+                        <div className="text-zinc-800">{fmt(fb.packaging)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">Insurance</div>
+                        <div className="text-zinc-800">{fmt(fb.insurance)}</div>
+                      </div>
+                      {fb.storage > 0 && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider text-zinc-400">Storage (manual)</div>
+                          <div className="text-zinc-800">{fmt(fb.storage)}</div>
+                        </div>
+                      )}
+                      {fb.other > 0 && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider text-zinc-400">Other</div>
+                          <div className="text-zinc-800">{fmt(fb.other)}</div>
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">Gross 3PL</div>
+                        <div className="text-zinc-800">{fmt(m.fulfillmentInvoiceTotal)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400">− Customer shipping</div>
+                        <div className="text-zinc-800">{fmt(m.shippingCollected)}</div>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Row 1 — P&L Waterfall */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {[
@@ -916,15 +1034,38 @@ export default function Dashboard() {
               hint: null,
             },
             {
-              label: "Fulfillment Net",
+              label: "ShipFusion fulfillment",
               value: m && m.fulfillmentInvoiceTotal > 0 ? fmt(m.netFulfillmentCost) : "—",
               pct: null,
               cls: m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "positive" : "text-orange-600") : "text-zinc-400",
-              hint: m && m.fulfillmentInvoiceTotal > 0
-                ? `3PL ${fmt(m.fulfillmentInvoiceTotal)} − shipping collected ${fmt(m.shippingCollected)}${fulfillmentSource ? ` · ${fulfillmentSource}` : ""}`
-                : fulfillmentSource === "shipfusion"
-                  ? "ShipFusion connected — no charges in range"
-                  : "ShipFusion API or manual invoice needed",
+              hint: (() => {
+                const fb = fulfillmentBreakdown || fulfillmentCoverage?.breakdown
+                if (m && m.fulfillmentInvoiceTotal > 0 && fb) {
+                  const parts = [
+                    `Pick & pack ${fmt(fb.pickPack)}`,
+                    `Shipping ${fmt(fb.shipping)}`,
+                    `Packaging ${fmt(fb.packaging)}`,
+                    fb.insurance > 0 ? `Insurance ${fmt(fb.insurance)}` : null,
+                    fb.storage > 0 ? `Storage ${fmt(fb.storage)}` : null,
+                    fb.other > 0 ? `Other ${fmt(fb.other)}` : null,
+                    `− customer shipping ${fmt(m.shippingCollected)}`,
+                  ].filter(Boolean)
+                  const flags: string[] = []
+                  if (fulfillmentCoverage?.hasManualBackup || fulfillmentSource === "manual" || fulfillmentSource === "mixed") {
+                    flags.push("includes manual invoice backup")
+                  }
+                  if (fulfillmentCoverage?.noShipFusionDataYet) {
+                    flags.push("no ShipFusion data for range yet")
+                  } else if (fulfillmentCoverage?.missingDays?.length) {
+                    flags.push(`${fulfillmentCoverage.missingDays.length} day(s) missing from store`)
+                  }
+                  return `${parts.join(" · ")}${flags.length ? ` · ${flags.join("; ")}` : ""}`
+                }
+                if (fulfillmentCoverage?.noShipFusionDataYet || fulfillmentSource === "shipfusion") {
+                  return "ShipFusion connected — no charges in selected range yet"
+                }
+                return "ShipFusion API or manual invoice needed"
+              })(),
             },
             {
               label: "Amazon Fees",

@@ -297,10 +297,6 @@ export async function upsertLoopMetrics(payload: {
   return { daily, cohorts, ltv }
 }
 
-function isoDateUTC(d: Date): string {
-  return d.toISOString().split("T")[0]
-}
-
 export async function getLoopMetricsStatus(): Promise<{
   empty: boolean
   latestDailyDate: string | null
@@ -308,22 +304,20 @@ export async function getLoopMetricsStatus(): Promise<{
   latestLtvSnapshotDate: string | null
   missingDailyDatesLast90: string[]
 }> {
+  const { todayPacific, addDaysISO } = await import("./dates")
   const sql = await getDb()
   const [dailyMax] = await sql`SELECT MAX(date)::text AS d FROM loop_daily_metrics`
   const [cohortMax] = await sql`SELECT MAX(snapshot_date)::text AS d FROM loop_cohort_retention`
   const [ltvMax] = await sql`SELECT MAX(snapshot_date)::text AS d FROM loop_ltv_snapshot`
+  const today = todayPacific()
   const presentRows = await sql`
     SELECT date::text AS d FROM loop_daily_metrics
-    WHERE date >= (CURRENT_DATE - INTERVAL '90 days')
+    WHERE date >= ${addDaysISO(today, -90)}::date
   `
   const present = new Set(presentRows.map((r) => r.d as string))
   const missingDailyDatesLast90: string[] = []
-  const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
   for (let i = 1; i <= 90; i++) {
-    const d = new Date(today)
-    d.setUTCDate(d.getUTCDate() - i)
-    const key = isoDateUTC(d)
+    const key = addDaysISO(today, -i)
     if (!present.has(key)) missingDailyDatesLast90.push(key)
   }
   missingDailyDatesLast90.sort()

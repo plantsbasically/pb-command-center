@@ -26,12 +26,15 @@
  */
 
 const BASE_URL = "https://api.shipfusion.com/v1"
+/** Prefer shared lib/dates.ts; local copy keeps this module testable under Node strip-types. */
 const LA_TZ = "America/Los_Angeles"
 
 const CLOSED_MONTH_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 const CURRENT_MONTH_TTL_MS = 60 * 60 * 1000 // 1 hour
 const INVOICE_FETCH_CONCURRENCY = 3
 const DEFAULT_PER_PAGE = 100
+/** Safety cap — old code stopped at 100 pages (10k txs) and could truncate newest days. */
+const MAX_SHIPMENT_PAGES = 500
 
 export type FulfillmentChargeCategory =
   | "pickPack"
@@ -156,8 +159,8 @@ export function billingDateToLA(billingDate?: string | null, billingTimestamp?: 
   return null
 }
 
+/** Same en-CA + timeZone pattern as lib/dates.formatDateInTimeZone. */
 function formatDateInTZ(date: Date, timeZone: string): string {
-  // en-CA yields YYYY-MM-DD
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -299,24 +302,36 @@ async function listInvoices(
 async function fetchInvoiceShipments(
   invoiceId: number,
   key: string,
-  preferredMode: AuthModeUsed
-): Promise<{ transactions: any[]; mode: AuthModeUsed; error?: string }> {
+  preferredMode: AuthModeUsed,
+  opts?: { preferRecentPages?: boolean; dateStart?: string; dateEnd?: string }
+): Promise<{
+  transactions: any[]
+  mode: AuthModeUsed
+  error?: string
+  truncated?: boolean
+  totalPages?: number
+}> {
   const transactions: any[] = []
-  let page = 1
   let totalPages = 1
   let mode: AuthModeUsed = preferredMode === "none" ? "x-shipfusion-token" : preferredMode
+  let truncated = false
 
-  while (page <= totalPages && page <= 100) {
+  // When refreshing a narrow recent window, hit the last pages first so a
+  // hard cap cannot drop the newest billing dates (API appears oldest-first).
+  const preferRecent = opts?.preferRecentPages === true
+
+  const fetchPage = async (pageNo: number) => {
     const qs = new URLSearchParams({
       type: "shipment",
       perPage: String(DEFAULT_PER_PAGE),
-      page: String(page),
+      page: String(pageNo),
     })
-    const { ok, status, json, mode: used } = await shipfusionGet(
-      `/invoices/${invoiceId}?${qs}`,
-      key,
-      mode
-    )
+    return shipfusionGet(`/invoices/${invoiceId}?${qs}`, key, mode)
+  }
+
+  // Probe page 1 to learn totalPages
+  {
+    const { ok, status, json, mode: used } = await fetchPage(1)
     mode = used
     if (!ok) {
       return { transactions, mode, error: `ShipFusion invoice ${invoiceId} HTTP ${status}` }
@@ -324,10 +339,52 @@ async function fetchInvoiceShipments(
     const batch = Array.isArray(json?.transactions) ? json.transactions : []
     transactions.push(...batch)
     totalPages = Math.max(1, Number(json?.totalPages) || 1)
-    page++
   }
 
-  return { transactions, mode }
+  if (totalPages > MAX_SHIPMENT_PAGES) {
+    console.warn(
+      `ShipFusion invoice ${invoiceId}: totalPages=${totalPages} exceeds safety cap ${MAX_SHIPMENT_PAGES}; results may truncate`
+    )
+    truncated = true
+  }
+
+  const pagesToFetch: number[] = []
+  const cap = Math.min(totalPages, MAX_SHIPMENT_PAGES)
+  if (preferRecent && totalPages > 1) {
+    // Newest pages first (assume ascending chronology)
+    for (let p = totalPages; p >= 2 && pagesToFetch.length < cap - 1; p--) {
+      pagesToFetch.push(p)
+    }
+    if (totalPages > cap) truncated = true
+  } else {
+    for (let p = 2; p <= cap; p++) pagesToFetch.push(p)
+    if (totalPages > cap) truncated = true
+  }
+
+  for (const pageNo of pagesToFetch) {
+    const { ok, status, json, mode: used } = await fetchPage(pageNo)
+    mode = used
+    if (!ok) {
+      return {
+        transactions,
+        mode,
+        error: `ShipFusion invoice ${invoiceId} HTTP ${status}`,
+        truncated,
+        totalPages,
+      }
+    }
+    const batch = Array.isArray(json?.transactions) ? json.transactions : []
+    transactions.push(...batch)
+  }
+
+  if (truncated || transactions.length >= DEFAULT_PER_PAGE * 100) {
+    console.warn(
+      `ShipFusion invoice ${invoiceId}: fetched ${transactions.length} txs across ~${Math.min(totalPages, MAX_SHIPMENT_PAGES)} pages` +
+        (truncated ? " (truncated vs API totalPages)" : "")
+    )
+  }
+
+  return { transactions, mode, truncated, totalPages }
 }
 
 function accumulateDaily(
@@ -355,8 +412,19 @@ export async function fetchShipFusionDailyCosts(
 
   const periodStart = toPeriodYYYYMM(dateStart)
   const periodEnd = toPeriodYYYYMM(dateEnd)
-  const todayISO = formatDateInTZ(new Date(), LA_TZ)
-  const cacheKey = `${periodStart}|${periodEnd}`
+  const { todayPacific } = await import("./dates")
+  const todayISO = todayPacific()
+  // Narrow recent windows (cron today/yesterday, short ranges): bypass month cache
+  // key collision issues and prefer newest shipment pages when an invoice is huge.
+  const daySpan =
+    (new Date(`${dateEnd}T00:00:00Z`).getTime() -
+      new Date(`${dateStart}T00:00:00Z`).getTime()) /
+      86400000 +
+    1
+  const preferRecentPages = daySpan <= 3
+  const cacheKey = preferRecentPages
+    ? `${periodStart}|${periodEnd}|range:${dateStart}:${dateEnd}`
+    : `${periodStart}|${periodEnd}`
   const cache = getCache()
   const cached = cache.get(cacheKey)
   if (cached && Date.now() - cached.ts < cached.ttlMs) {
@@ -390,7 +458,11 @@ export async function fetchShipFusionDailyCosts(
     })
 
     const details = await mapPool(invoices, INVOICE_FETCH_CONCURRENCY, (inv) =>
-      fetchInvoiceShipments(inv.invoiceId, key, listed.mode)
+      fetchInvoiceShipments(inv.invoiceId, key, listed.mode, {
+        preferRecentPages,
+        dateStart,
+        dateEnd,
+      })
     )
 
     const byDate = new Map<string, FulfillmentBreakdown>()

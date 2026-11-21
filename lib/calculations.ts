@@ -110,11 +110,13 @@ export function computeMetrics(params: {
 
   const totalFixedMonthly = fixedCostsMonthly.reduce((s, c) => s + c, 0)
 
-  // Prorate fixed costs based on date range
-  const start = new Date(dateRange.start)
-  const end = new Date(dateRange.end)
-  const daysInRange = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))) + 1
-  const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
+  // Prorate fixed costs based on inclusive calendar-day count (YYYY-MM-DD labels)
+  const startParts = dateRange.start.split("-").map(Number)
+  const endParts = dateRange.end.split("-").map(Number)
+  const startMs = Date.UTC(startParts[0], startParts[1] - 1, startParts[2])
+  const endMs = Date.UTC(endParts[0], endParts[1] - 1, endParts[2])
+  const daysInRange = Math.max(1, Math.round((endMs - startMs) / 86400000) + 1)
+  const daysInMonth = new Date(Date.UTC(startParts[0], startParts[1], 0)).getUTCDate()
   const fixedCosts = totalFixedMonthly * (daysInRange / daysInMonth)
 
   // Net fulfillment cost = 3PL invoice − shipping collected from customers.
