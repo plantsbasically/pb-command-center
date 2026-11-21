@@ -227,8 +227,11 @@ interface SecondOrderSegment {
   repeatRate30: number
   repeatRate60: number
   repeatRate90: number
+  eligible30?: number
+  eligible60?: number
+  eligible90?: number
   buckets: { key: string; count: number; pctOfRepeaters: number }[]
-  cumulative: { day: number; repeatRatePct: number }[]
+  cumulative: { day: number; repeatRatePct: number; eligibleCustomers?: number }[]
 }
 
 interface SecondOrderData {
@@ -236,11 +239,24 @@ interface SecondOrderData {
   lookbackDays: number
   windowStart: string
   windowEnd: string
+  coveredFrom?: string | null
+  coveredTo?: string | null
+  ordersFetched?: number
   splitNote: string
+  eligibleNote?: string
   methodSummary: string
   all: SecondOrderSegment
   subscriber: SecondOrderSegment
   oneTime: SecondOrderSegment
+  progress?: {
+    status: string
+    chunksDone: number
+    chunksTotal: number
+    ordersFetched: number
+    coveredFrom: string | null
+    coveredTo: string | null
+    message?: string
+  }
 }
 
 /** Pacific calendar presets — order: Today, Yesterday, then rolling / MTD. */
@@ -342,6 +358,7 @@ export default function Dashboard() {
   const [cohortTipOpen, setCohortTipOpen] = useState(false)
   const [secondOrder, setSecondOrder] = useState<SecondOrderData | null>(null)
   const [secondOrderSeg, setSecondOrderSeg] = useState<"all" | "subscriber" | "oneTime">("all")
+  const [cogsOpen, setCogsOpen] = useState(false)
   const [dateStart, setDateStart] = useState(() => startOfPacificMonth())
   const [dateEnd, setDateEnd] = useState(() => todayPacific())
   const [fulfillmentCoverage, setFulfillmentCoverage] = useState<{
@@ -418,6 +435,28 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData(false)
   }, [fetchData])
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pb-cogs-section-open")
+      if (raw === "1") setCogsOpen(true)
+      if (raw === "0") setCogsOpen(false)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const toggleCogsOpen = () => {
+    setCogsOpen((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem("pb-cogs-section-open", next ? "1" : "0")
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   const saveCOGS = async () => {
     setLoading(true)
@@ -1476,7 +1515,22 @@ export default function Dashboard() {
               <h2 className="font-semibold text-base">Time to second order</h2>
               <p className="text-xs text-zinc-400 mt-1 leading-snug">
                 {secondOrder
-                  ? `First orders ${secondOrder.windowStart} → ${secondOrder.windowEnd} (Pacific) · cached as of ${secondOrder.asOfDate} · ${secondOrder.splitNote}`
+                  ? [
+                      `Requested ${secondOrder.windowStart} → ${secondOrder.windowEnd}`,
+                      secondOrder.coveredFrom && secondOrder.coveredTo
+                        ? `fetched ${secondOrder.coveredFrom} → ${secondOrder.coveredTo}`
+                        : null,
+                      secondOrder.ordersFetched != null
+                        ? `${secondOrder.ordersFetched.toLocaleString()} orders`
+                        : null,
+                      `as of ${secondOrder.asOfDate}`,
+                      secondOrder.progress?.status === "running"
+                        ? `refresh ${secondOrder.progress.chunksDone}/${secondOrder.progress.chunksTotal}…`
+                        : null,
+                      secondOrder.splitNote,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
                   : "Cached Shopify scan (daily cron) — not loaded on page view."}
               </p>
             </div>
@@ -1530,22 +1584,56 @@ export default function Dashboard() {
                     </div>
                     <div className="metric-label mt-1">Median days to 2nd</div>
                   </div>
-                  <div>
+                  <div
+                    title={
+                      secondOrder.eligibleNote
+                        ? `${secondOrder.eligibleNote} Day 30 eligible n=${seg.eligible30 ?? "—"}.`
+                        : undefined
+                    }
+                  >
                     <div className="metric-big text-2xl">{fmtPct(seg.repeatRate30)}</div>
-                    <div className="metric-label mt-1">Repeat by day 30</div>
+                    <div className="metric-label mt-1">
+                      Repeat by day 30
+                      {seg.eligible30 != null ? (
+                        <span className="text-zinc-400 font-normal"> · n={seg.eligible30}</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div>
+                  <div
+                    title={
+                      secondOrder.eligibleNote
+                        ? `${secondOrder.eligibleNote} Day 60 eligible n=${seg.eligible60 ?? "—"}.`
+                        : undefined
+                    }
+                  >
                     <div className="metric-big text-2xl">{fmtPct(seg.repeatRate60)}</div>
-                    <div className="metric-label mt-1">Repeat by day 60</div>
+                    <div className="metric-label mt-1">
+                      Repeat by day 60
+                      {seg.eligible60 != null ? (
+                        <span className="text-zinc-400 font-normal"> · n={seg.eligible60}</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div>
+                  <div
+                    title={
+                      secondOrder.eligibleNote
+                        ? `${secondOrder.eligibleNote} Day 90 eligible n=${seg.eligible90 ?? "—"}.`
+                        : undefined
+                    }
+                  >
                     <div className="metric-big text-2xl">{fmtPct(seg.repeatRate90)}</div>
-                    <div className="metric-label mt-1">Repeat by day 90</div>
+                    <div className="metric-label mt-1">
+                      Repeat by day 90
+                      {seg.eligible90 != null ? (
+                        <span className="text-zinc-400 font-normal"> · n={seg.eligible90}</span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <p className="text-[11px] text-zinc-500">
                   {seg.firstOrderCustomers.toLocaleString()} first-order customers ·{" "}
                   {seg.repeaters.toLocaleString()} reordered
+                  {secondOrder.eligibleNote ? ` · ${secondOrder.eligibleNote}` : ""}
                 </p>
                 <div>
                   <div className="text-xs font-medium text-zinc-600 mb-2">Days to second order</div>
@@ -1663,32 +1751,63 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Row 4 — COGS Management */}
+        {/* Row 4 — COGS Management (collapsed by default) */}
         <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-base">COGS by Variant</h2>
-            {!editingCOGS ? (
-              <div className="flex gap-2 items-center">
-                <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
-                  Edit COGS
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={syncFromShopify}
-                  disabled={syncing}
-                  className="btn-outline text-xs disabled:opacity-40"
-                >
-                  {syncing ? "Syncing..." : "↻ Sync from Shopify"}
-                </button>
-                <button type="button" onClick={saveCOGS} className="btn-primary">Save</button>
-                <button type="button" onClick={() => setEditingCOGS(false)} className="btn-outline">Cancel</button>
-              </div>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <button
+              type="button"
+              onClick={toggleCogsOpen}
+              className="text-left flex-1 min-w-0"
+              aria-expanded={cogsOpen}
+            >
+              <h2 className="font-semibold text-base flex items-center gap-2">
+                <span className="text-zinc-400 font-mono text-xs w-3">{cogsOpen ? "▾" : "▸"}</span>
+                COGS by Variant
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1 leading-snug pl-5">
+                {(() => {
+                  const totalCogs = m?.cogs ?? cogsBreakdown.reduce((s, r) => s + (r.totalCOGS || 0), 0)
+                  const variantCount = variants.length || cogsBreakdown.length
+                  const zeroCostConfigured = variants.filter((v) => !(v.totalCost > 0)).length
+                  const soldZero =
+                    cogsBreakdown.filter((r) => (r.unitsSold || 0) > 0 && !(r.totalCost > 0)).length
+                  const parts = [
+                    `${fmt(totalCogs)} total COGS in range`,
+                    `${variantCount} variant${variantCount === 1 ? "" : "s"}`,
+                  ]
+                  if (soldZero > 0) {
+                    parts.push(`${soldZero} sold with $0/missing unit cost`)
+                  } else if (zeroCostConfigured > 0) {
+                    parts.push(`${zeroCostConfigured} with $0/missing unit cost`)
+                  }
+                  return parts.join(" · ")
+                })()}
+              </p>
+            </button>
+            {(cogsOpen || editingCOGS) && (
+              !editingCOGS ? (
+                <div className="flex gap-2 items-center shrink-0">
+                  <button type="button" onClick={() => { setLocalVariants(JSON.parse(JSON.stringify(variants))); setEditingCOGS(true); }} className="btn-primary">
+                    Edit COGS
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={syncFromShopify}
+                    disabled={syncing}
+                    className="btn-outline text-xs disabled:opacity-40"
+                  >
+                    {syncing ? "Syncing..." : "↻ Sync from Shopify"}
+                  </button>
+                  <button type="button" onClick={saveCOGS} className="btn-primary">Save</button>
+                  <button type="button" onClick={() => setEditingCOGS(false)} className="btn-outline">Cancel</button>
+                </div>
+              )
             )}
           </div>
-          {editingCOGS ? (
+          {(cogsOpen || editingCOGS) && (editingCOGS ? (
             <div className="space-y-4">
               {localVariants.map((variant, vi) => (
                 <div key={vi} className="border border-zinc-200 rounded-lg p-4">
@@ -1830,7 +1949,7 @@ export default function Dashboard() {
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </div>
 
         {/* Fulfillment — ShipFusion primary + manual backup */}

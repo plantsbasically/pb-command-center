@@ -165,10 +165,11 @@ Cached in `second_order_stats` (not computed on page load):
 
 | Piece | Detail |
 | --- | --- |
-| Refresh | `POST/GET /api/second-order/refresh` — Bearer `SECOND_ORDER_CRON_SECRET` or `DAILY_METRICS_CRON_SECRET` |
-| Source | Shopify orders via existing PB Agents client credentials (`fetchOrdersThrottled`, 500ms page delay + 429 retry) |
-| Window | First orders in last N Pacific days (`SHOPIFY_SECOND_ORDER_LOOKBACK_DAYS`, default 180) |
-| Output | Histogram buckets, cumulative repeat %, median days, 30/60/90 rates; subscriber vs one-time split via source/tags heuristics |
+| Refresh | `POST/GET /api/second-order/refresh` — Bearer `SECOND_ORDER_CRON_SECRET` or `DAILY_METRICS_CRON_SECRET`. Default **202 async** background job (poll `?status=1`); `?sync=1` awaits. |
+| Source | Shopify via `fetchOrdersWindowed` (15-day chunks, uncapped per chunk, 500ms page delay, 429/THROTTLED exponential backoff) |
+| Window | First orders in last N Pacific days (`SHOPIFY_SECOND_ORDER_LOOKBACK_DAYS`, default 180). Payload stores `coveredFrom`/`coveredTo`/`ordersFetched`. |
+| Rates | 30/60/90% use **eligible** denominator (first order ≥ N days before as-of) |
+| Output | Histogram buckets, cumulative repeat %, median days; subscriber vs one-time split via source/tags heuristics |
 
 ### Example ingest payload
 

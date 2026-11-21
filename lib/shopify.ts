@@ -248,35 +248,83 @@ async function sleepMs(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+function isThrottleResponse(res: Response, bodyText?: string): boolean {
+  if (res.status === 429) return true
+  const text = (bodyText || "").toUpperCase()
+  return text.includes("THROTTLED") || text.includes("EXCEEDED") && text.includes("RATE")
+}
+
+/**
+ * Fetch with 429 / THROTTLED retry + exponential backoff (honors Retry-After).
+ */
 async function shopifyAdminFetchWithRetry(
   url: string,
-  retried = false
+  opts?: { authRetried?: boolean; throttleAttempt?: number }
 ): Promise<Response> {
-  const res = await shopifyAdminFetch(url, retried)
-  if (res.status === 429) {
-    const retryAfter = Number(res.headers.get("retry-after") || 2)
-    await sleepMs(Math.max(1, retryAfter) * 1000)
-    return shopifyAdminFetchWithRetry(url, retried)
+  const authRetried = opts?.authRetried ?? false
+  const throttleAttempt = opts?.throttleAttempt ?? 0
+  const maxThrottleRetries = 8
+
+  const res = await shopifyAdminFetch(url, authRetried)
+
+  if (res.status === 401 && !authRetried && hasClientCredentials) {
+    clearTokenCache()
+    return shopifyAdminFetchWithRetry(url, { authRetried: true, throttleAttempt })
   }
+
+  if (res.status === 429 || res.status === 503) {
+    if (throttleAttempt >= maxThrottleRetries) return res
+    const retryAfterHdr = Number(res.headers.get("retry-after") || 0)
+    const backoffMs =
+      retryAfterHdr > 0
+        ? retryAfterHdr * 1000
+        : Math.min(60_000, 1000 * Math.pow(2, throttleAttempt))
+    await sleepMs(backoffMs)
+    return shopifyAdminFetchWithRetry(url, {
+      authRetried,
+      throttleAttempt: throttleAttempt + 1,
+    })
+  }
+
+  // Some Shopify errors return 200/4xx with THROTTLED in body — rare on REST but handle.
+  if (res.status >= 400) {
+    const clone = res.clone()
+    const text = await clone.text().catch(() => "")
+    if (isThrottleResponse(res, text) && throttleAttempt < maxThrottleRetries) {
+      const backoffMs = Math.min(60_000, 1000 * Math.pow(2, throttleAttempt))
+      await sleepMs(backoffMs)
+      return shopifyAdminFetchWithRetry(url, {
+        authRetried,
+        throttleAttempt: throttleAttempt + 1,
+      })
+    }
+  }
+
   return res
 }
 
 export async function fetchOrders(dateStart: string, dateEnd: string): Promise<ShopifyOrder[]> {
-  return fetchOrdersThrottled(dateStart, dateEnd, { pageDelayMs: 0 })
+  // Dashboard range fetches stay capped (safety); heavy jobs use fetchOrdersWindowed.
+  return fetchOrdersThrottled(dateStart, dateEnd, { pageDelayMs: 0, maxOrders: 25000 })
 }
 
 /**
- * Paginated order fetch with inter-page delay + 429 retry (for heavy jobs
- * like time-to-second-order). Same auth as fetchOrders (PB Agents client credentials).
+ * Paginated order fetch with inter-page delay + 429/THROTTLED backoff.
+ * Pass `maxOrders: Infinity` (or omit with `uncapped: true`) for full windows.
  */
 export async function fetchOrdersThrottled(
   dateStart: string,
   dateEnd: string,
-  opts?: { pageDelayMs?: number; maxOrders?: number }
+  opts?: { pageDelayMs?: number; maxOrders?: number; uncapped?: boolean }
 ): Promise<ShopifyOrder[]> {
   const allOrders: ShopifyOrder[] = []
   const pageDelayMs = opts?.pageDelayMs ?? 500
-  const maxOrders = opts?.maxOrders ?? 25000
+  const maxOrders =
+    opts?.uncapped === true
+      ? Number.POSITIVE_INFINITY
+      : opts?.maxOrders != null
+        ? opts.maxOrders
+        : 25000
   const { shopifyCreatedAtBounds } = await import("./dates")
   const { createdAtMin, createdAtMax } = shopifyCreatedAtBounds(dateStart, dateEnd)
 
@@ -307,6 +355,78 @@ export async function fetchOrdersThrottled(
   }
 
   return allOrders
+}
+
+/** Inclusive Pacific YYYY-MM-DD chunks of at most `chunkDays` days each. */
+export function dateRangeChunks(
+  start: string,
+  end: string,
+  chunkDays = 15
+): { start: string; end: string }[] {
+  if (start > end) return []
+  const chunks: { start: string; end: string }[] = []
+  let cur = start
+  const step = Math.max(1, Math.floor(chunkDays))
+  while (cur <= end) {
+    // Inclusive chunk of `step` days → last = cur + (step - 1)
+    const [y, m, d] = cur.split("-").map(Number)
+    const lastDt = new Date(Date.UTC(y, m - 1, d + (step - 1)))
+    let last = lastDt.toISOString().slice(0, 10)
+    if (last > end) last = end
+    chunks.push({ start: cur, end: last })
+    const [ly, lm, ld] = last.split("-").map(Number)
+    const next = new Date(Date.UTC(ly, lm - 1, ld + 1))
+    cur = next.toISOString().slice(0, 10)
+  }
+  return chunks
+}
+
+/**
+ * Fetch all orders in [dateStart, dateEnd] via successive date windows so no
+ * single Shopify query hits the safety cap. Dedupes by order id.
+ */
+export async function fetchOrdersWindowed(
+  dateStart: string,
+  dateEnd: string,
+  opts?: {
+    chunkDays?: number
+    pageDelayMs?: number
+    onChunk?: (info: {
+      chunkStart: string
+      chunkEnd: string
+      chunkIndex: number
+      chunkCount: number
+      ordersInChunk: number
+      ordersTotal: number
+    }) => void | Promise<void>
+  }
+): Promise<{ orders: ShopifyOrder[]; coveredFrom: string; coveredTo: string }> {
+  const chunkDays = opts?.chunkDays ?? 15
+  const pageDelayMs = opts?.pageDelayMs ?? 500
+  const chunks = dateRangeChunks(dateStart, dateEnd, chunkDays)
+  const byId = new Map<string, ShopifyOrder>()
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    const part = await fetchOrdersThrottled(chunk.start, chunk.end, {
+      pageDelayMs,
+      uncapped: true,
+    })
+    for (const o of part) byId.set(String(o.id), o)
+    if (opts?.onChunk) {
+      await opts.onChunk({
+        chunkStart: chunk.start,
+        chunkEnd: chunk.end,
+        chunkIndex: i + 1,
+        chunkCount: chunks.length,
+        ordersInChunk: part.length,
+        ordersTotal: byId.size,
+      })
+    }
+  }
+
+  const orders = [...byId.values()]
+  return { orders, coveredFrom: dateStart, coveredTo: dateEnd }
 }
 
 
