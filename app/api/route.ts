@@ -24,38 +24,31 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
   const { computeMetrics } = await import("@/lib/calculations")
   const { processShopifyData } = await import("@/lib/shopify")
   const { fetchTWData, processTWData } = await import("@/lib/triplewhale")
+  const { fetchGatewayFeesFromSql, extractGatewayFeesFromSummary } = await import("@/lib/gateway-fees")
   const { getCogsVariants, getFixedCosts, getFulfillmentInvoices, getGiftMappings } = await import("@/lib/db")
   const { fetchLoopData } = await import("@/lib/loop")
   const { buildGiftCogsAliasMap, resolveUnitCogs } = await import("@/lib/gift-mapping")
+  const { resolveFulfillmentForRange } = await import("@/lib/fulfillment")
 
-  const [cogsVariants, fixedCostItems, fulfillmentInvoices, giftMappings, shopifyData, twRaw, loopData] = await Promise.all([
-    getCogsVariants(),
-    getFixedCosts(),
-    getFulfillmentInvoices(),
-    getGiftMappings(),
-    processShopifyData(dateStart, dateEnd),
-    fetchTWData(dateStart, dateEnd),
-    fetchLoopData(),
-  ])
+  // ShipFusion fulfillment + gateway SQL run in parallel with summary.
+  // On SQL failure we fall back to the summary payload already in hand.
+  const fulfillmentInvoicesPromise = getFulfillmentInvoices()
+  const [cogsVariants, fixedCostItems, fulfillmentInvoices, giftMappings, shopifyData, twRaw, loopData, fulfillment, gatewaySql] =
+    await Promise.all([
+      getCogsVariants(),
+      getFixedCosts(),
+      fulfillmentInvoicesPromise,
+      getGiftMappings(),
+      processShopifyData(dateStart, dateEnd),
+      fetchTWData(dateStart, dateEnd),
+      fetchLoopData(),
+      fulfillmentInvoicesPromise.then((invoices) =>
+        resolveFulfillmentForRange(dateStart, dateEnd, invoices)
+      ),
+      fetchGatewayFeesFromSql(dateStart, dateEnd).catch(() => null),
+    ])
 
-  function prorateInvoices(invoices: typeof fulfillmentInvoices): number {
-    const rangeStart = new Date(dateStart)
-    const rangeEnd = new Date(dateEnd)
-    let total = 0
-    for (const inv of invoices) {
-      const invStart = new Date(inv.periodStart)
-      const invEnd = new Date(inv.periodEnd)
-      const overlapStart = new Date(Math.max(rangeStart.getTime(), invStart.getTime()))
-      const overlapEnd = new Date(Math.min(rangeEnd.getTime(), invEnd.getTime()))
-      if (overlapStart > overlapEnd) continue
-      const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1
-      const invoiceDays = Math.round((invEnd.getTime() - invStart.getTime()) / 86400000) + 1
-      total += inv.amount * (overlapDays / invoiceDays)
-    }
-    return total
-  }
-
-  const fulfillmentInvoiceTotal = prorateInvoices(fulfillmentInvoices)
+  const fulfillmentInvoiceTotal = fulfillment.fulfillmentInvoiceTotal
 
   const cogsMap = new Map<string, number>()
   for (const v of cogsVariants) {
@@ -82,6 +75,20 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
   const amazonFeeInvoiceTotal = twData.amazonFees
   const tiktokFees = twData.tiktokFees
 
+  const gatewayFeesResult = gatewaySql ?? (() => {
+    const total = extractGatewayFeesFromSummary(twRaw)
+    const daily: Record<string, number> = {}
+    if (total !== 0) daily[dateEnd] = total
+    return {
+      total,
+      daily,
+      source: (total !== 0 || (twRaw && !twRaw.error && Array.isArray(twRaw.metrics))
+        ? "tw_summary"
+        : "none") as "tw_summary" | "none",
+      error: gatewaySql === null ? "TW SQL unavailable" : undefined,
+    }
+  })()
+
   const metrics = computeMetrics({
     shopifyRevenue: shopifyData.revenue,
     amazonRevenue: twData.amazonRevenue,
@@ -95,6 +102,7 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
     fulfillmentInvoiceTotal,
     amazonFeeInvoiceTotal,
     tiktokFees,
+    gatewayFees: gatewayFeesResult.total,
     adSpend: twData.adSpend,
     twLtv: twData.ltv,
     fixedCostsMonthly: fixedCostItems.map((fc) => fc.monthlyCost),
@@ -115,6 +123,17 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
     variants: cogsVariants,
     fixedCosts: fixedCostItems,
     fulfillmentInvoices,
+    fulfillmentSource: fulfillment.fulfillmentSource,
+    fulfillmentBreakdown: fulfillment.fulfillmentBreakdown,
+    fulfillmentMeta: {
+      apiContribution: fulfillment.apiContribution,
+      manualContribution: fulfillment.manualContribution,
+      shipfusionAuthMode: fulfillment.shipfusionAuthMode,
+      shipfusionError: fulfillment.shipfusionError || null,
+      shipfusionInvoiceCount: fulfillment.shipfusionInvoiceCount,
+      shipfusionTransactionCount: fulfillment.shipfusionTransactionCount,
+      apiDatesCovered: fulfillment.apiDatesCovered,
+    },
     twData,
     loopData,
     subscriptionRevenue: shopifyData.subscriptionRevenue,
@@ -129,6 +148,9 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
     },
     // Information-only — never subtracted from revenue or used in CM / net profit.
     discountStats: shopifyData.discountStats,
+    gatewayFees: gatewayFeesResult.total,
+    gatewayFeesDaily: gatewayFeesResult.daily,
+    gatewayFeesSource: gatewayFeesResult.source,
     dataSources: {
       tiktok: {
         primary: "Triple Whale summary metric tiktokShopsGrossSales (TikTok Shop Gross Sales)",
@@ -143,11 +165,21 @@ async function buildMetricsForRange(dateStart: string, dateEnd: string) {
         twFees: twData.tiktokFees,
       },
       contributionMargin: {
-        formula: "revenue − adSpend − realCOGS",
+        formula: "revenue − adSpend − realCOGS − netFulfillment − gatewayFees",
         revenue: "Shopify subtotal + TW Amazon gross sales + TW TikTok Shop gross sales",
         adSpend: "TW blendedAds",
         cogs: "cogs_variants × units sold (gift lines at COGS via alias map; Amazon/TikTok estimated at Shopify COGS rate)",
-        note: "Does not modify Triple Whale calculations. Free-gift retail is NOT counted as revenue; gift COGS IS included.",
+        fulfillment:
+          "ShipFusion shipment invoices (primary) + manual fulfillment_invoices for storage / uncovered days; net of Shopify shipping collected",
+        gatewayFees: "TW orders_table.payment_gateway_costs (Shopify only) or summary payment_gateway_costs",
+        note: "Does not modify Triple Whale calculations. Free-gift retail is NOT counted as revenue; gift COGS IS included. Amazon/TikTok marketplace fees stay separate.",
+      },
+      fulfillment: {
+        primary: "ShipFusion GET /invoices + /invoices/{id}?type=shipment",
+        auth: "X-SHIPFUSION-TOKEN (OpenAPI); Bearer fallback if token header fails",
+        categories: "pickPack←services, shipping, packaging, insurance, other←tax/residual; storage←manual only",
+        precedence:
+          "API covers pickPack/shipping/packaging/insurance/other on billed dates; manual storage always added; non-storage manuals only on days without API coverage",
       },
       discounts: {
         note: "Information-only display. discountStats is never subtracted from revenue or fed into CM.",
@@ -196,9 +228,15 @@ export async function GET(req: NextRequest) {
         date: today,
         contributionMargin: dailySource.metrics.trueContributionMargin,
         contributionMarginPct: dailySource.metrics.trueContributionMarginPct,
+        contributionProfit: dailySource.metrics.contributionProfit,
         revenue: dailySource.metrics.revenue,
         adSpend: dailySource.metrics.adSpend,
         cogs: dailySource.metrics.cogs,
+        gatewayFees: dailySource.metrics.gatewayFees,
+        netFulfillmentCost: dailySource.metrics.netFulfillmentCost,
+        fulfillmentInvoiceTotal: dailySource.metrics.fulfillmentInvoiceTotal,
+        fulfillmentSource: dailySource.fulfillmentSource,
+        fulfillmentBreakdown: dailySource.fulfillmentBreakdown,
         components: {
           shopifyRevenue: dailySource.metrics.shopifyRevenue,
           amazonRevenue: dailySource.metrics.amazonRevenue,
@@ -208,9 +246,17 @@ export async function GET(req: NextRequest) {
           tiktokCOGS: dailySource.metrics.tiktokCOGS,
           giftCOGS: dailySource.giftStats.giftCOGS,
           giftRetailDiscounted: dailySource.giftStats.giftRetailDiscounted,
+          gatewayFees: dailySource.metrics.gatewayFees,
+          netFulfillmentCost: dailySource.metrics.netFulfillmentCost,
         },
-        formula: "Contribution margin = revenue − ad spend − real COGS (gifts at COGS, not retail)",
+        formula:
+          "Contribution margin = revenue − ad spend − real COGS − net fulfillment − payment gateway fees (gifts at COGS, not retail)",
       },
+      gatewayFees: rangeData.gatewayFees,
+      gatewayFeesDaily: rangeData.gatewayFeesDaily,
+      gatewayFeesSource: rangeData.gatewayFeesSource,
+      fulfillmentSource: rangeData.fulfillmentSource,
+      fulfillmentBreakdown: rangeData.fulfillmentBreakdown,
     }
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() })

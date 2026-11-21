@@ -122,6 +122,7 @@ describe("CM isolation from discountStats", () => {
     fulfillmentInvoiceTotal: 0,
     amazonFeeInvoiceTotal: 300,
     tiktokFees: 10,
+    gatewayFees: 0,
     adSpend: 4000,
     twLtv: 85,
     fixedCostsMonthly: [5000],

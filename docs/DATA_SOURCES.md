@@ -15,7 +15,7 @@ All profit logic lives in this app. **Triple Whale is read-only** — we never c
 ## Contribution margin (hero)
 
 ```
-trueContributionMargin = revenue − adSpend − realCOGS
+trueContributionMargin = revenue − adSpend − realCOGS − netFulfillment − gatewayFees
 ```
 
 | Component | Source |
@@ -23,10 +23,80 @@ trueContributionMargin = revenue − adSpend − realCOGS
 | **Revenue** | Shopify order `subtotal_price` (gifts already $0 after discount) + TW Amazon gross sales + TW TikTok Shop gross sales |
 | **Ad spend** | TW `blendedAds` |
 | **Real COGS** | `cogs_variants` × units sold on Shopify line items, including free-gift lines; gift SKUs with $0 COGS resolve via `cogsAlias` (e.g. `JJ33CP-FREE` → `JJ33CP-SS`). Amazon/TikTok COGS estimated at Shopify rate. |
+| **Net fulfillment** | 3PL cost (ShipFusion primary + manual backup) − Shopify shipping collected. Zero when no 3PL cost is available (avoids crediting shipping alone). |
+| **Payment gateway fees** | TW `orders_table.payment_gateway_costs` (Shopify platform only, daily via SQL API). Fallback: summary-page `payment_gateway_costs`. See below. |
 
 **Gift distortion fix:** TW treats gift retail as discounts. Here gift retail is **not** revenue; gift **COGS is included**. Digital gifts (app / ebook) stay $0 COGS.
 
-The existing waterfall `contributionProfit` (after fulfillment net + marketplace fees) is unchanged aside from including TikTok fees when present.
+Waterfall `contributionProfit` also subtracts Amazon fees, TikTok Shop fees, net fulfillment, and Shopify payment gateway fees. Amazon/TikTok marketplace fees are **not** double-counted into gateway fees (SQL filters `platform = 'Shopify'`).
+
+## Payment gateway fees (Shopify)
+
+| Choice | Detail |
+| --- | --- |
+| **Primary** | TW SQL `POST /api/v2/orcabase/api/sql` — `sum(payment_gateway_costs)` from `orders_table` grouped by `event_date` (shop-local / America/Los_Angeles), `platform = Shopify` |
+| **Fallback** | TW summary-page metric `payment_gateway_costs` (“Payment Gateway Costs”) |
+| **API fields** | `gatewayFees`, `gatewayFeesDaily`, `gatewayFeesSource` (`tw_sql` \| `tw_summary` \| `none`) |
+| **Shopify Payments** | Imported **actuals** from Shopify into TW |
+| **PayPal / other gateways** | **Estimates** from TW Cost Settings → Gateway Costs (percentage + flat fee) |
+| **Not included** | Currency conversion fees; Amazon FBA/referral fees; TikTok Shop fees |
+
+TW does **not** expose a public Cost Settings read API for gateway rates. Confirm PayPal / other non-Shopify-Payments rates in the Triple Whale UI (Cost Settings → Gateway Costs).
+
+Implementation: `lib/gateway-fees.ts`.
+
+## Fulfillment / ShipFusion (primary 3PL cost)
+
+| Choice | Detail |
+| --- | --- |
+| **Primary** | ShipFusion REST API `https://api.shipfusion.com/v1` |
+| **Auth** | Prefer header `X-SHIPFUSION-TOKEN` (confirmed in ShipFusion OpenAPI `securitySchemes`). If that returns 401/403, retry once with `Authorization: Bearer <token>` (portal docs mention Bearer as the newer credential style). Whichever mode succeeds is sticky for the process. |
+| **Env** | `SHIPFUSION_API_KEY` (preferred) or `SHIPFUSION_API_TOKEN`. If missing, log and fall back to manual `fulfillment_invoices` only. |
+| **List** | `GET /invoices?invoicePeriodStart=YYYYMM&invoicePeriodEnd=YYYYMM` (USD filter) |
+| **Detail** | `GET /invoices/{id}?type=shipment` (paginated transactions) |
+| **Daily grouping** | Prefer `billingTimestamp` → calendar date in `America/Los_Angeles`; else parse `billingDate` `YYYYMMDD`. |
+| **Cache** | Closed months ~7d TTL; ranges that include the current month ~1h. Bounded concurrency (3) on per-invoice fetches. |
+
+### Charge classification (per shipment transaction)
+
+| API field | Category |
+| --- | --- |
+| `services` | `pickPack` |
+| `shipping` | `shipping` |
+| `packaging` | `packaging` |
+| `insurance` | `insurance` |
+| `tax` + any residual vs `total` | `other` |
+| *(not on shipment invoices)* | `storage` — from manual invoices only |
+
+### Precedence vs manual `fulfillment_invoices`
+
+1. **ShipFusion wins** for `pickPack` / `shipping` / `packaging` / `insurance` / `other` on dates the API returns shipment charges.
+2. **Manual storage always added** — labels matching `\bstorage\b` (case-insensitive) are classified as `storage` and included even when the API covers those days (storage is typically billed month-end and may not appear on shipment invoices).
+3. **Non-storage manuals** fill only calendar days in the range with **no** ShipFusion coverage (pre-cutover / API gap). Amounts are day-prorated into `other`.
+4. **Full manual fallback** when the API key is missing or the range has zero ShipFusion days (legacy Nice Commerce behaviour).
+
+API response includes `fulfillmentSource` (`shipfusion` | `manual` | `mixed`) and `fulfillmentBreakdown` by category.
+
+Net fulfillment for CM remains:
+
+```
+netFulfillmentCost = fulfillmentInvoiceTotal > 0
+  ? fulfillmentInvoiceTotal − shippingCollected
+  : 0
+```
+
+### TODO — `daily_metrics` table (not built yet)
+
+When a `daily_metrics` table is added, include at least:
+
+- `date` (DATE, America/Los_Angeles business day)
+- `fulfillment_gross` (NUMERIC) — 3PL cost before shipping collected
+- `fulfillment_net` (NUMERIC) — after subtracting Shopify shipping collected
+- `fulfillment_pick_pack`, `fulfillment_shipping`, `fulfillment_packaging`, `fulfillment_insurance`, `fulfillment_storage`, `fulfillment_other` (NUMERIC)
+- `fulfillment_source` (TEXT: `shipfusion` | `manual` | `mixed`)
+- `gateway_fees` (NUMERIC) — daily Shopify payment gateway costs from TW
+
+Do **not** invent this table until product asks for persisted daily rollups; the live API + in-memory ShipFusion / TW caches are the source of truth today.
 
 ## Subscription → free gift mapping
 

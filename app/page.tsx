@@ -17,6 +17,7 @@ interface Metrics {
   netFulfillmentCost: number
   amazonFeeInvoiceTotal: number
   tiktokFees: number
+  gatewayFees: number
   adSpend: number
   contributionProfit: number
   contributionMarginPct: number
@@ -34,13 +35,30 @@ interface Metrics {
   aov: number
 }
 
+interface FulfillmentBreakdown {
+  pickPack: number
+  shipping: number
+  packaging: number
+  insurance: number
+  storage: number
+  other: number
+}
+
+type FulfillmentSource = "shipfusion" | "manual" | "mixed"
+
 interface DailyContribution {
   date: string
   contributionMargin: number
   contributionMarginPct: number
+  contributionProfit?: number
   revenue: number
   adSpend: number
   cogs: number
+  gatewayFees?: number
+  netFulfillmentCost?: number
+  fulfillmentInvoiceTotal?: number
+  fulfillmentSource?: FulfillmentSource
+  fulfillmentBreakdown?: FulfillmentBreakdown
   components: {
     shopifyRevenue: number
     amazonRevenue: number
@@ -50,6 +68,7 @@ interface DailyContribution {
     tiktokCOGS: number
     giftCOGS: number
     giftRetailDiscounted: number
+    gatewayFees?: number
   }
   formula: string
 }
@@ -233,6 +252,8 @@ export default function Dashboard() {
   const [dailyContribution, setDailyContribution] = useState<DailyContribution | null>(null)
   const [giftPlans, setGiftPlans] = useState<GiftPlanMapping[]>([])
   const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null)
+  const [gatewayFees, setGatewayFees] = useState(0)
+  const [gatewayFeesSource, setGatewayFeesSource] = useState<"tw_sql" | "tw_summary" | "none">("none")
   const [dateStart, setDateStart] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
@@ -246,6 +267,8 @@ export default function Dashboard() {
   const [newFixedCost, setNewFixedCost] = useState("")
   const [syncing, setSyncing] = useState(false)
   const [fulfillmentInvoices, setFulfillmentInvoices] = useState<FulfillmentInvoice[]>([])
+  const [fulfillmentSource, setFulfillmentSource] = useState<FulfillmentSource | null>(null)
+  const [fulfillmentBreakdown, setFulfillmentBreakdown] = useState<FulfillmentBreakdown | null>(null)
   const [newInvoiceLabel, setNewInvoiceLabel] = useState("")
   const [newInvoiceStart, setNewInvoiceStart] = useState("")
   const [newInvoiceEnd, setNewInvoiceEnd] = useState("")
@@ -272,6 +295,8 @@ export default function Dashboard() {
       setFixedCosts(json.fixedCosts || [])
       setCogsBreakdown(json.cogsBreakdown || [])
       setFulfillmentInvoices(json.fulfillmentInvoices || [])
+      setFulfillmentSource(json.fulfillmentSource || null)
+      setFulfillmentBreakdown(json.fulfillmentBreakdown || null)
       setTwData(json.twData || null)
       setLoopData(json.loopData || null)
       setSubscriptionRevenue(json.subscriptionRevenue ?? 0)
@@ -279,6 +304,8 @@ export default function Dashboard() {
       setDailyContribution(json.dailyContribution || null)
       setGiftPlans(json.giftMappings?.plans || [])
       setDiscountStats(json.discountStats || null)
+      setGatewayFees(Number(json.gatewayFees ?? json.metrics?.gatewayFees ?? 0) || 0)
+      setGatewayFeesSource(json.gatewayFeesSource || "none")
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -448,7 +475,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           action: "addFulfillmentInvoice",
           data: {
-            label: newInvoiceLabel.trim() || "Nice Commerce Invoice",
+            label: newInvoiceLabel.trim() || "Fulfillment Invoice",
             periodStart: newInvoiceStart,
             periodEnd: newInvoiceEnd,
             amount: parseFloat(newInvoiceAmount) || 0,
@@ -634,12 +661,31 @@ export default function Dashboard() {
                 <span>
                   COGS <span className="text-zinc-200">{fmt(dailyContribution.cogs)}</span>
                 </span>
+                <span className="text-zinc-600">−</span>
+                <span>
+                  Net fulfillment{" "}
+                  <span className="text-zinc-200">{fmt(dailyContribution.netFulfillmentCost || 0)}</span>
+                </span>
+                <span className="text-zinc-600">−</span>
+                <span>
+                  Payment gateway fees{" "}
+                  <span className="text-zinc-200">
+                    {fmt(
+                      dailyContribution.gatewayFees ??
+                        dailyContribution.components.gatewayFees ??
+                        0,
+                    )}
+                  </span>
+                </span>
               </div>
               <div className="mt-3 text-[11px] text-zinc-500 max-w-2xl leading-relaxed">
                 {dailyContribution.formula}. Free gifts valued at COGS
                 {dailyContribution.components.giftCOGS > 0
                   ? ` (today gift COGS ${fmt(dailyContribution.components.giftCOGS)}; gift retail ${fmt(dailyContribution.components.giftRetailDiscounted)} excluded from revenue)`
                   : ""}.
+                {dailyContribution.fulfillmentSource
+                  ? ` Fulfillment source: ${dailyContribution.fulfillmentSource}.`
+                  : ""}{" "}
                 Command-center only — Triple Whale unchanged.
               </div>
 
@@ -847,7 +893,7 @@ export default function Dashboard() {
         })()}
 
         {/* Row 1 — P&L Waterfall */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {[
             {
               label: "COGS",
@@ -875,8 +921,10 @@ export default function Dashboard() {
               pct: null,
               cls: m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "positive" : "text-orange-600") : "text-zinc-400",
               hint: m && m.fulfillmentInvoiceTotal > 0
-                ? `3PL ${fmt(m.fulfillmentInvoiceTotal)} − shipping collected ${fmt(m.shippingCollected)}`
-                : "Add a Nice Commerce invoice below",
+                ? `3PL ${fmt(m.fulfillmentInvoiceTotal)} − shipping collected ${fmt(m.shippingCollected)}${fulfillmentSource ? ` · ${fulfillmentSource}` : ""}`
+                : fulfillmentSource === "shipfusion"
+                  ? "ShipFusion connected — no charges in range"
+                  : "ShipFusion API or manual invoice needed",
             },
             {
               label: "Amazon Fees",
@@ -886,11 +934,23 @@ export default function Dashboard() {
               hint: "FBA handling fees · sourced from Triple Whale",
             },
             {
+              label: "Payment gateway fees",
+              value: m && (m.gatewayFees ?? gatewayFees) > 0 ? fmt(m.gatewayFees ?? gatewayFees) : "—",
+              pct: null,
+              cls: m && (m.gatewayFees ?? gatewayFees) > 0 ? "text-orange-600" : "text-zinc-400",
+              hint:
+                gatewayFeesSource === "tw_sql"
+                  ? "Shopify only · TW orders_table.payment_gateway_costs"
+                  : gatewayFeesSource === "tw_summary"
+                    ? "Shopify blended · TW summary payment_gateway_costs"
+                    : "Triple Whale payment gateway costs (Shopify only)",
+            },
+            {
               label: "Contribution Profit",
               value: fmt(m?.contributionProfit || 0),
               pct: fmtPct(m?.contributionMarginPct || 0),
               cls: m ? (m.contributionProfit >= 0 ? "positive" : "negative") : "",
-              hint: "after product cost, fulfillment, Amazon fees & ad spend",
+              hint: "after product cost, fulfillment, marketplace fees, gateway fees & ad spend",
             },
             {
               label: "Net Profit",
@@ -1226,13 +1286,21 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Fulfillment — 3PL invoices vs. shipping collected */}
+        {/* Fulfillment — ShipFusion primary + manual backup */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-semibold text-base">Fulfillment</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Nice Commerce invoices vs. shipping collected from customers</p>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                ShipFusion billing (primary) vs. shipping collected
+                {fulfillmentSource ? ` · source: ${fulfillmentSource}` : ""}
+              </p>
             </div>
+            {fulfillmentSource && (
+              <span className="text-xs font-medium uppercase tracking-wide px-2 py-1 rounded bg-zinc-100 text-zinc-600">
+                {fulfillmentSource}
+              </span>
+            )}
           </div>
 
           {/* Summary stats */}
@@ -1245,7 +1313,7 @@ export default function Dashboard() {
               <div className="text-sm font-semibold text-zinc-700">
                 {m && m.fulfillmentInvoiceTotal > 0 ? fmt(m.fulfillmentInvoiceTotal) : "—"}
               </div>
-              <div className="text-xs text-zinc-400 mt-0.5">3PL invoice (prorated to period)</div>
+              <div className="text-xs text-zinc-400 mt-0.5">3PL cost (period)</div>
             </div>
             <div className={`rounded-lg p-3 ${m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "bg-green-50" : "bg-orange-50") : "bg-zinc-50"}`}>
               <div className={`text-sm font-semibold ${m && m.fulfillmentInvoiceTotal > 0 ? (m.netFulfillmentCost <= 0 ? "text-green-700" : "text-orange-700") : "text-zinc-400"}`}>
@@ -1255,9 +1323,30 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Invoice list */}
+          {fulfillmentBreakdown && m && m.fulfillmentInvoiceTotal > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-5">
+              {([
+                ["Pick & pack", fulfillmentBreakdown.pickPack],
+                ["Shipping", fulfillmentBreakdown.shipping],
+                ["Packaging", fulfillmentBreakdown.packaging],
+                ["Insurance", fulfillmentBreakdown.insurance],
+                ["Storage", fulfillmentBreakdown.storage],
+                ["Other", fulfillmentBreakdown.other],
+              ] as const).map(([label, value]) => (
+                <div key={label} className="bg-zinc-50 rounded-lg p-2.5">
+                  <div className="text-sm font-semibold text-zinc-700">{fmt(value)}</div>
+                  <div className="text-xs text-zinc-400 mt-0.5">{label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Manual backup invoice list */}
           {fulfillmentInvoices.length > 0 && (
             <div className="mb-4">
+              <div className="text-xs font-medium text-zinc-500 uppercase mb-2">
+                Manual backup invoices (storage / uncovered periods)
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-zinc-500 text-xs uppercase border-b border-zinc-200">
@@ -1270,7 +1359,7 @@ export default function Dashboard() {
                 <tbody>
                   {fulfillmentInvoices.map((inv) => (
                     <tr key={inv.id} className="border-b border-zinc-100">
-                      <td className="py-2.5 px-2 text-sm">{inv.label || "Nice Commerce Invoice"}</td>
+                      <td className="py-2.5 px-2 text-sm">{inv.label || "Fulfillment Invoice"}</td>
                       <td className="py-2.5 px-2 text-xs text-zinc-500">{inv.periodStart} → {inv.periodEnd}</td>
                       <td className="py-2.5 px-2 text-right font-medium">{fmt(inv.amount)}</td>
                       <td className="py-2.5 text-right">
@@ -1291,12 +1380,18 @@ export default function Dashboard() {
 
           {/* Add invoice form */}
           <div className="border-t border-zinc-100 pt-4">
-            <div className="text-xs font-medium text-zinc-500 uppercase mb-3">Add Nice Commerce Invoice</div>
+            <div className="text-xs font-medium text-zinc-500 uppercase mb-3">
+              Add manual backup invoice
+            </div>
+            <p className="text-xs text-zinc-400 mb-3">
+              Include &quot;storage&quot; in the label for storage fees (always added alongside ShipFusion).
+              Other manuals only fill days the API does not cover.
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <input
                 value={newInvoiceLabel}
                 onChange={(e) => setNewInvoiceLabel(e.target.value)}
-                placeholder="Nice Commerce — May 2025"
+                placeholder="ShipFusion storage — May 2025"
               />
               <input
                 type="date"
