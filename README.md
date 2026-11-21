@@ -4,6 +4,8 @@ Plants Basically Profit Command Center
 
 See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contribution-margin formula, ShipFusion fulfillment, payment gateway fees, subscription → free-gift mapping, and the Loop analytics ingest pipeline.
 
+See [docs/DAILY_METRICS.md](docs/DAILY_METRICS.md) for the Pacific `daily_metrics` table, cron/backfill, and range summing.
+
 ## Env vars
 
 | Variable | Purpose |
@@ -14,8 +16,10 @@ See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for TikTok Shop sourcing, contr
 | `TRIPLEWHALE_API_KEY` | Triple Whale summary metrics + gateway fee SQL |
 | `LOOP_API_KEY` | Loop Admin API — active subscribers + subscriber MRR |
 | `LOOP_INGEST_SECRET` | Bearer secret for `POST /api/loop-metrics/ingest` and `GET /api/loop-metrics/status` |
+| `DAILY_METRICS_CRON_SECRET` | Bearer secret for `POST/GET /api/daily-metrics/refresh` |
+| `DAILY_METRICS_INPROCESS_SCHEDULER` | Set `0` to disable in-process 12m ticker |
 | `SHIPFUSION_API_KEY` | ShipFusion billing (primary 3PL cost). Alias: `SHIPFUSION_API_TOKEN` |
-| `DATABASE_URL` | Postgres (COGS, fixed costs, manual fulfillment invoices, gift mappings, Loop metrics) |
+| `DATABASE_URL` | Postgres (COGS, fixed costs, daily_metrics, Loop metrics, …) |
 
 ## Shopify auth
 

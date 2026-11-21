@@ -85,6 +85,7 @@ function aggregateDailyCosts(
   return { total: sumBreakdown(acc), breakdown: acc, datesCovered }
 }
 
+/** Calendar-day iteration on YYYY-MM-DD (UTC-date math — no TZ drift). */
 function eachDateInclusive(start: string, end: string): string[] {
   const out: string[] = []
   const cur = new Date(`${start}T00:00:00Z`)
@@ -102,6 +103,7 @@ function overlapDays(
   invStart: string,
   invEnd: string
 ): { overlapStart: string; overlapEnd: string; invoiceDays: number } | null {
+  // DATE-only strings compared via UTC midnight — these are calendar labels, not instants
   const rs = new Date(`${rangeStart}T00:00:00Z`).getTime()
   const re = new Date(`${rangeEnd}T00:00:00Z`).getTime()
   const is = new Date(`${invStart}T00:00:00Z`).getTime()

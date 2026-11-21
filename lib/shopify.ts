@@ -246,13 +246,15 @@ interface OrdersResponse {
 
 export async function fetchOrders(dateStart: string, dateEnd: string): Promise<ShopifyOrder[]> {
   const allOrders: ShopifyOrder[] = []
+  const { shopifyCreatedAtBounds } = await import("./dates")
+  const { createdAtMin, createdAtMax } = shopifyCreatedAtBounds(dateStart, dateEnd)
 
-  // First page
+  // First page — offsets required: bare datetimes are treated as UTC by Shopify.
   const firstRes = await shopifyFetch("orders.json", {
     status: "any",
     limit: "250",
-    created_at_min: `${dateStart}T00:00:00`,
-    created_at_max: `${dateEnd}T23:59:59`,
+    created_at_min: createdAtMin,
+    created_at_max: createdAtMax,
   })
   const firstData: OrdersResponse = await firstRes.json()
   allOrders.push(...firstData.orders)
@@ -432,8 +434,12 @@ export async function processShopifyData(
 
   let newCustomerCount = 0
   const uniqueCustomerIds = new Set<string>()
-  const rangeStart = new Date(`${dateStart}T00:00:00`)
-  const rangeEnd = new Date(`${dateEnd}T23:59:59`)
+  const { pacificDayInstantBounds, eachDateInclusive } = await import("./dates")
+  // Inclusive Pacific-day window for the whole range
+  const rangeStart = pacificDayInstantBounds(dateStart).start
+  const rangeEnd = pacificDayInstantBounds(
+    eachDateInclusive(dateStart, dateEnd).slice(-1)[0] || dateEnd
+  ).end
 
   for (const order of orders) {
     if (EXCLUDED_STATUSES.has(order.financial_status)) continue

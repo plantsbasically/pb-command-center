@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url)
-    const start = searchParams.get("start") || new Date().toISOString().split("T")[0]
+    const { todayPacific } = await import("@/lib/dates")
+    const start = searchParams.get("start") || todayPacific()
     const end = searchParams.get("end") || start
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
       return NextResponse.json({ error: "start/end must be YYYY-MM-DD" }, { status: 400 })

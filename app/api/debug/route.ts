@@ -8,8 +8,9 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const dateStart = searchParams.get("start") || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0]
-  const dateEnd = searchParams.get("end") || new Date().toISOString().split("T")[0]
+  const { todayPacific, startOfPacificMonth, shopifyCreatedAtBounds } = await import("@/lib/dates")
+  const dateStart = searchParams.get("start") || startOfPacificMonth()
+  const dateEnd = searchParams.get("end") || todayPacific()
 
   const results: Record<string, any> = { dateStart, dateEnd }
 
@@ -37,7 +38,8 @@ export async function GET(req: NextRequest) {
     const { getShopifyAccessToken, getShopifyStoreDomain } = await import("@/lib/shopify")
     const token = await getShopifyAccessToken()
     const domain = getShopifyStoreDomain()
-    const url = `https://${domain}/admin/api/2025-01/orders.json?status=any&limit=5&created_at_min=${dateStart}T00:00:00&created_at_max=${dateEnd}T23:59:59`
+    const { createdAtMin, createdAtMax } = shopifyCreatedAtBounds(dateStart, dateEnd)
+    const url = `https://${domain}/admin/api/2025-01/orders.json?status=any&limit=5&created_at_min=${encodeURIComponent(createdAtMin)}&created_at_max=${encodeURIComponent(createdAtMax)}`
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     })
