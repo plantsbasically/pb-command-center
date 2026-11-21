@@ -309,6 +309,41 @@ export async function fetchOrders(dateStart: string, dateEnd: string): Promise<S
 }
 
 /**
+ * Build orders.json query string from precomputed ISO bounds.
+ * Uses encodeURIComponent (not URLSearchParams) so `+` in offsets stays `%2B`.
+ */
+export function buildOrdersListQueryString(
+  createdAtMin: string,
+  createdAtMax: string,
+  opts?: { limit?: number; status?: string }
+): string {
+  const status = opts?.status ?? "any"
+  const limit = String(opts?.limit ?? 250)
+  return [
+    `status=${encodeURIComponent(status)}`,
+    `limit=${encodeURIComponent(limit)}`,
+    `created_at_min=${encodeURIComponent(createdAtMin)}`,
+    `created_at_max=${encodeURIComponent(createdAtMax)}`,
+  ].join("&")
+}
+
+/** Pacific calendar days → UTC Z created_at bounds + query string for orders.json. */
+export async function buildOrdersListQueryStringAsync(
+  dateStart: string,
+  dateEnd: string,
+  opts?: { limit?: number; status?: string }
+): Promise<{ qs: string; createdAtMin: string; createdAtMax: string }> {
+  const { pacificDayInstantBounds } = await import("./dates")
+  const createdAtMin = pacificDayInstantBounds(dateStart).start.toISOString()
+  const createdAtMax = pacificDayInstantBounds(dateEnd).end.toISOString()
+  return {
+    qs: buildOrdersListQueryString(createdAtMin, createdAtMax, opts),
+    createdAtMin,
+    createdAtMax,
+  }
+}
+
+/**
  * Paginated order fetch with inter-page delay + 429/THROTTLED backoff.
  * Pass `maxOrders: Infinity` (or omit with `uncapped: true`) for full windows.
  */
@@ -317,30 +352,49 @@ export async function fetchOrdersThrottled(
   dateEnd: string,
   opts?: { pageDelayMs?: number; maxOrders?: number; uncapped?: boolean }
 ): Promise<ShopifyOrder[]> {
+  const result = await fetchOrdersThrottledWithMeta(dateStart, dateEnd, opts)
+  return result.orders
+}
+
+/** Like fetchOrdersThrottled but also returns the filter bounds used (for logging/tests). */
+export async function fetchOrdersThrottledWithMeta(
+  dateStart: string,
+  dateEnd: string,
+  opts?: { pageDelayMs?: number; maxOrders?: number; uncapped?: boolean }
+): Promise<{
+  orders: ShopifyOrder[]
+  createdAtMin: string
+  createdAtMax: string
+  pagesFetched: number
+}> {
   const allOrders: ShopifyOrder[] = []
   const pageDelayMs = opts?.pageDelayMs ?? 500
+  // Prefer a large finite cap over Infinity (some bundlers/serialize paths are quirky).
   const maxOrders =
     opts?.uncapped === true
-      ? Number.POSITIVE_INFINITY
+      ? opts?.maxOrders != null
+        ? opts.maxOrders
+        : 500_000
       : opts?.maxOrders != null
         ? opts.maxOrders
         : 25000
-  const { shopifyCreatedAtBounds } = await import("./dates")
-  const { createdAtMin, createdAtMax } = shopifyCreatedAtBounds(dateStart, dateEnd)
 
-  const qs = new URLSearchParams({
-    status: "any",
-    limit: "250",
-    created_at_min: createdAtMin,
-    created_at_max: createdAtMax,
-  }).toString()
+  const { qs, createdAtMin, createdAtMax } = await buildOrdersListQueryStringAsync(
+    dateStart,
+    dateEnd
+  )
   const firstUrl = `${SHOPIFY_API_BASE}/orders.json?${qs}`
   const firstRes = await shopifyAdminFetchWithRetry(firstUrl)
   if (!firstRes.ok) {
-    throw new Error(`Shopify API ${firstRes.status}: ${await firstRes.text()}`)
+    throw new Error(
+      `Shopify API ${firstRes.status} for ${dateStart}→${dateEnd} ` +
+        `(${createdAtMin}→${createdAtMax}): ${await firstRes.text()}`
+    )
   }
   const firstData: OrdersResponse = await firstRes.json()
-  allOrders.push(...firstData.orders)
+  const firstPage = Array.isArray(firstData.orders) ? firstData.orders : []
+  allOrders.push(...firstPage)
+  let pagesFetched = 1
 
   let nextUrl = parseNextLink(firstRes.headers.get("link"))
 
@@ -349,12 +403,14 @@ export async function fetchOrdersThrottled(
     const res = await shopifyAdminFetchWithRetry(nextUrl)
     if (!res.ok) throw new Error(`Shopify pagination ${res.status}: ${await res.text()}`)
     const data: OrdersResponse = await res.json()
-    if (!data.orders.length) break
-    allOrders.push(...data.orders)
+    const page = Array.isArray(data.orders) ? data.orders : []
+    if (!page.length) break
+    allOrders.push(...page)
+    pagesFetched++
     nextUrl = parseNextLink(res.headers.get("link"))
   }
 
-  return allOrders
+  return { orders: allOrders, createdAtMin, createdAtMax, pagesFetched }
 }
 
 /** Inclusive Pacific YYYY-MM-DD chunks of at most `chunkDays` days each. */
@@ -398,6 +454,9 @@ export async function fetchOrdersWindowed(
       chunkCount: number
       ordersInChunk: number
       ordersTotal: number
+      pagesFetched: number
+      createdAtMin: string
+      createdAtMax: string
     }) => void | Promise<void>
   }
 ): Promise<{ orders: ShopifyOrder[]; coveredFrom: string; coveredTo: string }> {
@@ -408,19 +467,22 @@ export async function fetchOrdersWindowed(
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]
-    const part = await fetchOrdersThrottled(chunk.start, chunk.end, {
+    const meta = await fetchOrdersThrottledWithMeta(chunk.start, chunk.end, {
       pageDelayMs,
       uncapped: true,
     })
-    for (const o of part) byId.set(String(o.id), o)
+    for (const o of meta.orders) byId.set(String(o.id), o)
     if (opts?.onChunk) {
       await opts.onChunk({
         chunkStart: chunk.start,
         chunkEnd: chunk.end,
         chunkIndex: i + 1,
         chunkCount: chunks.length,
-        ordersInChunk: part.length,
+        ordersInChunk: meta.orders.length,
         ordersTotal: byId.size,
+        pagesFetched: meta.pagesFetched,
+        createdAtMin: meta.createdAtMin,
+        createdAtMax: meta.createdAtMax,
       })
     }
   }

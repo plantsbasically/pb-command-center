@@ -166,7 +166,7 @@ Cached in `second_order_stats` (not computed on page load):
 | Piece | Detail |
 | --- | --- |
 | Refresh | `POST/GET /api/second-order/refresh` — Bearer `SECOND_ORDER_CRON_SECRET` or `DAILY_METRICS_CRON_SECRET`. Default **202 async** background job (poll `?status=1`); `?sync=1` awaits. |
-| Source | Shopify via `fetchOrdersWindowed` (15-day chunks, uncapped per chunk, 500ms page delay, 429/THROTTLED exponential backoff) |
+| Source | Shopify via `fetchOrdersWindowed` (15-day chunks, UTC `Z` `created_at_min/max` via `encodeURIComponent`, Link-header pagination per chunk, 500ms page delay, 429/THROTTLED exponential backoff). Progress callbacks must not close over the fetch result (TDZ). |
 | Window | First orders in last N Pacific days (`SHOPIFY_SECOND_ORDER_LOOKBACK_DAYS`, default 180). Payload stores `coveredFrom`/`coveredTo`/`ordersFetched`. |
 | Rates | 30/60/90% use **eligible** denominator (first order ≥ N days before as-of) |
 | Output | Histogram buckets, cumulative repeat %, median days; subscriber vs one-time split via source/tags heuristics |
