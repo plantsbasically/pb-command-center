@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test lib/discounts.test.ts lib/calculations.cm-isolation.test.ts"
+    "test": "node --experimental-strip-types --test lib/discounts.test.ts lib/calculations.cm-isolation.test.ts lib/shipfusion.test.ts lib/fulfillment.test.ts"
   },
   "dependencies": {
     "next": "16.2.6",
