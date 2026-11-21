@@ -90,9 +90,16 @@ export function formatShortPacificDate(iso: string, refYear?: number): string {
   return `${month} ${day}`
 }
 
+/** Calendar yesterday of a YYYY-MM-DD (no TZ drift). */
+function yesterdayOf(todayISO: string): string {
+  const [y, m, d] = todayISO.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
 /**
  * Label for the hero eyebrow:
  * - today-only → "Today"
+ * - yesterday-only → "Yesterday"
  * - single day → "Oct 21"
  * - range → "Oct 21 – Nov 20" (years when range crosses a year)
  */
@@ -103,6 +110,9 @@ export function formatContributionRangeLabel(
 ): { label: string; isTodayOnly: boolean } {
   if (dateStart === dateEnd && dateStart === todayISO) {
     return { label: "Today", isTodayOnly: true }
+  }
+  if (dateStart === dateEnd && dateStart === yesterdayOf(todayISO)) {
+    return { label: "Yesterday", isTodayOnly: false }
   }
   if (dateStart === dateEnd) {
     return { label: formatShortPacificDate(dateStart), isTodayOnly: false }

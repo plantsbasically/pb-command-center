@@ -14,8 +14,10 @@ import {
   pacificOffsetAtDate,
   shopifyCreatedAtBounds,
   todayPacific,
+  todayDateRange,
   tripleWhaleTodayHour,
   yesterdayPacific,
+  yesterdayDateRange,
   zonedMidnightUTC,
   PACIFIC_TZ,
 } from "./dates.ts"
@@ -114,5 +116,17 @@ describe("addDaysISO / eachDateInclusive / presets", () => {
     assert.equal(presets["Month to Date"].end, "2026-11-20")
     assert.equal(presets["Month to Date"].start, "2026-11-01")
     assert.equal(presets["Last 7d"].start, "2026-11-13")
+  })
+
+  it("Yesterday preset is a single Pacific calendar day (start === end === yesterday)", () => {
+    // 2026-11-20 16:10 PT = 2026-11-21 00:10 UTC → Pacific today Nov 20, yesterday Nov 19
+    const lateAfternoonPT = new Date("2026-11-21T00:10:00.000Z")
+    assert.equal(todayPacific(lateAfternoonPT), "2026-11-20")
+    assert.equal(yesterdayPacific(lateAfternoonPT), "2026-11-19")
+    const range = yesterdayDateRange(lateAfternoonPT)
+    assert.deepEqual(range, { start: "2026-11-19", end: "2026-11-19" })
+    assert.equal(range.start, range.end)
+    const today = todayDateRange(lateAfternoonPT)
+    assert.deepEqual(today, { start: "2026-11-20", end: "2026-11-20" })
   })
 })
